@@ -1,0 +1,11 @@
+[project]
+name = "vat-ingest"
+version = "0.1.0"
+description = "VAT chatbot ingest pipeline (fetch, parse, chunk, embed)"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[tool.uv]
+package = false
