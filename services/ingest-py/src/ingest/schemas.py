@@ -18,3 +18,15 @@ class ExtractResult(BaseModel):
     page_count: int
     sections: list[Section]
     meta: dict = Field(default_factory=dict)
+
+
+class Chunk(BaseModel):
+    doc_id: str
+    section_ordinal: int
+    chunk_ordinal: int
+    content: str
+    content_hash: str
+    token_count: int
+    heading: str
+    page: int | None = None
+    anchor: str | None = None
