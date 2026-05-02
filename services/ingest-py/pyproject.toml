@@ -7,7 +7,9 @@ dependencies = [
     "httpx>=0.27",
     "pdfplumber>=0.11",
     "pydantic>=2.7",
+    "pydantic-settings>=2.2",
     "tiktoken>=0.7",
+    "voyageai>=0.3",
 ]
 
 [build-system]
