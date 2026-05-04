@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from ingest.extract.pdf import extract_pdf
+from ingest.sources.pdf import extract_pdf
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SOURCES_PATH = REPO_ROOT / "data" / "sources.json"
