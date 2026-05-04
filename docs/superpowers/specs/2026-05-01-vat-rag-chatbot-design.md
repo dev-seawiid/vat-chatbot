@@ -23,10 +23,11 @@
 - 사용자 피드백(👍/👎) 수집
 - Langfuse trace
 - 골든셋 30문항 자동 평가
-- 인증/감사 로그 기본
+- 감사 로그 기본 (actor_id 없이, 시스템 액션만)
 - Vercel 배포 + GHA CI/CD
 
-명시적 비범위: 멀티 에이전트, 본격 RBAC, fine-tuning, 자체 임베딩 학습.
+명시적 비범위: 멀티 에이전트, 본격 RBAC, fine-tuning, 자체 임베딩 학습,
+**인증(NextAuth/OAuth) — 토이 데모 마찰을 0으로 두기 위해 제외, 익명 접근**.
 
 ---
 
@@ -111,9 +112,11 @@ chunks (
 --   HNSW는 데이터 추가에 robust하며 build·운영 모두 default로 충분.
 
 -- 대화/메시지
+-- §0.4 비범위(인증) 결정에 따라 user_id·users 테이블은 제외. conversations는 익명으로
+-- 생성되며 cookie/local에 보관되는 conversation_id로만 식별. feedback도 동일하게
+-- user_id 컬럼 없음.
 conversations (
   id            uuid PK
-  user_id       uuid FK → users
   title         text
   created_at    timestamptz
 )
@@ -133,20 +136,19 @@ messages (
   created_at    timestamptz
 )
 
--- HITL 피드백
+-- HITL 피드백 (익명)
 feedback (
   id            uuid PK
   message_id    uuid FK
-  user_id       uuid FK
   rating        smallint     -- 1=👍, -1=👎
   comment       text
   created_at    timestamptz
 )
 
--- 감사 로그 (append-only)
+-- 감사 로그 (append-only) — 인증 비범위로 actor_id 컬럼 자체 제외.
+-- 시스템 mutation(ingest 적재, eval run 등)만 기록.
 audit_log (
   id            uuid PK
-  actor_id      uuid
   action        text
   target        text
   payload       jsonb
@@ -174,13 +176,7 @@ eval_runs (
   summary       jsonb
 )
 
--- 사용자
-users (
-  id            uuid PK
-  email         text UNIQUE
-  role          text         -- "admin" | "user"
-  created_at    timestamptz
-)
+-- 사용자: 비범위(§0.4). 향후 도입 시 conversations·feedback·audit_log에 user_id를 추가.
 ```
 
 ### 2.1 Gateway 인터페이스 (양 plane)
@@ -434,15 +430,15 @@ LLM-as-a-judge는 v2 — 토이 단계엔 결정적 채점이 비용/재현성 �
 | 답변 이력 페이지 | 과거 메시지 + 인용 + 피드백 통합 뷰 | `app/history/page.tsx` |
 | Admin 평가 대시보드 | `eval_runs` 시각화 | `app/admin/evals/page.tsx` |
 
-### 5.2 인증/권한/감사
+### 5.2 보안/감사
 
 | 영역 | 결정 |
 |---|---|
-| 인증 | NextAuth(Auth.js) + Google OAuth |
-| 세션 | DB 세션 (NextAuth `DrizzleAdapter`) |
-| RBAC | `users.role` 단일 차원, middleware로 `/admin/*` 가드 |
-| Audit | 모든 mutation은 `gateway.audit.append()` 강제 |
+| 인증 | **비범위** — 익명 접근. 데모 마찰을 0으로 두기 위함(§0.4) |
+| RBAC | **비범위** — 인증 부재로 자연스럽게 제외 |
+| Audit | 모든 mutation은 `gateway.audit.append()` 강제. `actor_id`는 NULL(시스템 액션만 기록) |
 | Audit 무결성 | `REVOKE UPDATE/DELETE FROM app_user` (append-only) |
+| Rate limit | 익명 공개 노출 보호 — IP/cookie 기반(W4) |
 | PII | 사용자 입력에서 회사명·주민번호 자동 마스킹(정규식) |
 | Secret | `lib/env.ts`에서 `zod` 스키마로 검증 |
 
@@ -487,10 +483,10 @@ ingest 실행
 | W1 | 프로젝트 골격 + ingest | Next.js 스캐폴드, Drizzle 마이그레이션, PDF 1개 ingest 끝까지 동작 |
 | W2 | RAG MVP | `/api/chat` 스트리밍 + 인용 표시, gateway/retrieve 단위 테스트, 시스템 프롬프트 1차 |
 | W3 | LLMOps + 평가셋 | Langfuse 연결, 골든셋 30문항 작성, `pnpm eval:run` 동작, eval 대시보드 |
-| W4 | HITL + 보안 + 배포 | 피드백 UI, NextAuth, audit_log, RBAC 가드, Vercel/Neon 배포, GHA |
+| W4 | HITL + 배포 | 피드백 UI, audit_log, rate limit, Vercel/Neon 배포, GHA |
 | (여유) | 정리 | README + 데모 영상 + 기술 스택 정리표 |
 
-리스크 컷라인: W3까지 못 끝나면 W4 NextAuth는 매직링크로 다운그레이드, 평가셋은 20문항으로 축소.
+리스크 컷라인: W3까지 못 끝나면 평가셋은 20문항으로 축소, HITL 피드백 UI는 통계만 노출(개별 코멘트 뷰 생략).
 
 ---
 
@@ -498,7 +494,7 @@ ingest 실행
 
 **모노레포** (pnpm workspaces): `apps/web` · `packages/core` · `services/ingest-py`
 
-- **apps/web** — Next.js 15 (App Router) / TypeScript / Vercel AI SDK / NextAuth + Google OAuth
+- **apps/web** — Next.js 15 (App Router) / TypeScript / Vercel AI SDK
 - **packages/core** — Drizzle ORM (스키마 단일 소스) / postgres.js / zod
 - **services/ingest-py** — Python 3.12 / uv / psycopg + pgvector / pdfplumber / trafilatura · selectolax / httpx / pydantic + pydantic-settings / voyageai
 - **Infra** — Neon Postgres + pgvector / Anthropic Claude (Sonnet 4.6) + Voyage-3 / Langfuse / Inngest cron(W3+) / GitHub Actions / Docker Compose
@@ -516,8 +512,7 @@ ingest 실행
 | REST API | `/api/chat`, `/api/feedback` |
 | CLI / 데이터 수집 | `services/ingest-py` Python CLI + `data/sources.json` 레지스트리 |
 | 데이터 가공 (Python) | pdfplumber(PDF) · trafilatura/selectolax(HTML) · 국가법령정보센터 OpenAPI(법령) |
-| RDBMS 스키마/마이그레이션 | Drizzle + PostgreSQL(Neon), 9개 테이블 (스키마 단일 소스) |
-| 인증/권한 | NextAuth(Auth.js) + Google OAuth + 단일 RBAC |
+| RDBMS 스키마/마이그레이션 | Drizzle + PostgreSQL(Neon), 8개 테이블 (스키마 단일 소스) |
 | 비동기/이벤트 | Inngest cron (`eval.golden.weekly`, W3) — ingest는 의도적으로 Python CLI로 단순화 |
 | 감사 로그 / observability | append-only `audit_log` + `app_user` REVOKE + Langfuse trace |
 | 컨테이너 / CI/CD | docker-compose + GitHub Actions (Node + Python 두 단계) |
