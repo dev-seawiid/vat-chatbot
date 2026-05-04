@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: vat-postgres
+    # ENV 미설정 시 기본값 적용. .env에서 override 가능.
+    # 주의: 자격증명·DB명은 최초 init에만 적용 — 변경 시 volume 재생성 + DATABASE_URL 동기화 필요.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vat_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vat_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-vat_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # init.sql은 데이터 디렉터리가 비어있을 때(최초 1회)만 실행됨.
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vat_user}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres-data:

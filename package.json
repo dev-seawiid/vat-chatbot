@@ -8,6 +8,12 @@
     "ingest:extract": "cd services/ingest-py && uv run python scripts/extract_pdfs.py",
     "ingest:chunk": "cd services/ingest-py && uv run python scripts/chunk_pdfs.py",
     "ingest:embed": "cd services/ingest-py && uv run python scripts/embed_chunks.py",
-    "ingest:all": "pnpm ingest:fetch && pnpm ingest:extract && pnpm ingest:chunk && pnpm ingest:embed"
+    "ingest:migrate": "cd services/ingest-py && uv run python scripts/migrate.py",
+    "ingest:load": "cd services/ingest-py && uv run python scripts/load_to_db.py",
+    "ingest:all": "pnpm ingest:fetch && pnpm ingest:extract && pnpm ingest:chunk && pnpm ingest:embed && pnpm ingest:load",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "db:psql": "docker compose exec postgres psql -U vat_user -d vat_db"
   }
 }

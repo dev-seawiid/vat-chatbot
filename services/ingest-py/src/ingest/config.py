@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # 미설정 시 ValidationError로 fail-fast — 실수로 None이 API에 전달되는 사고 방지.
     voyage_api_key: str
+    # 로컬 docker-compose 기본값. .env에서 Neon URL로 덮어쓰기만 하면 동일 코드로 대상 전환.
+    database_url: str = "postgresql://vat_user:vat_pw@localhost:5432/vat_db"
 
 
 @lru_cache
