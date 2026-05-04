@@ -27,4 +27,5 @@ EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_chunks_doc_id" ON "chunks" USING btree ("doc_id");
+CREATE INDEX IF NOT EXISTS "idx_chunks_doc_id" ON "chunks" USING btree ("doc_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_chunks_embedding" ON "chunks" USING hnsw ("embedding" vector_cosine_ops);

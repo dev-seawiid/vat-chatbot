@@ -50,7 +50,11 @@ export const chunks = pgTable(
     // spec §2.1 invariant — 같은 doc 안에서 동일 청크 중복 방지(서로 다른 doc은 동일 텍스트 가능).
     uqDocContent: unique("uq_chunks_doc_content_hash").on(t.docId, t.contentHash),
     docIdIdx: index("idx_chunks_doc_id").on(t.docId),
-    // 벡터 인덱스(HNSW vs ivfflat)는 별도 결정 슬라이스에서 추가 — spec은 ivfflat이지만
-    // 토이 규모에선 HNSW가 latency 우위라 의도적 deviation 검토 필요.
+    // 벡터 검색 인덱스 — spec §2 결정에 따라 HNSW + cosine. 파라미터(m·ef_construction)는
+    // pgvector 기본값(16/64)으로 두고, ef_search는 SQL 런타임 SET으로 조정.
+    embeddingIdx: index("idx_chunks_embedding").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops"),
+    ),
   }),
 );

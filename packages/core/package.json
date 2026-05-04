@@ -5,7 +5,8 @@
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "query": "tsx scripts/retrieve.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.36.0",
@@ -13,8 +14,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.28.0",
+    "@types/node": "^25.6.0",
     "dotenv": "^16.4.5",
+    "drizzle-kit": "^0.28.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }
