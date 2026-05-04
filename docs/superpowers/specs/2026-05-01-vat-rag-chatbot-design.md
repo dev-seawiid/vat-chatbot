@@ -106,7 +106,9 @@ chunks (
   metadata      jsonb
   created_at    timestamptz
 )
--- 인덱스: ivfflat(embedding vector_cosine_ops) lists=100
+-- 인덱스: HNSW(embedding vector_cosine_ops) — m=16, ef_construction=64 (pgvector 기본값)
+--   ivfflat(lists=100)에서 변경 — toy 규모(수백~수천 chunks)에서 ivfflat 튜닝 의미가 없고,
+--   HNSW는 데이터 추가에 robust하며 build·운영 모두 default로 충분.
 
 -- 대화/메시지
 conversations (
@@ -231,6 +233,17 @@ class Gateway:
 | 메타데이터 | `{kind, tax_type, page?, section_path, doc_version, law_article?}` | 메타필터 검색 기반 |
 | 임베딩 | Voyage-3 (`input_type='document'`) | 문서/쿼리 모드 분리 |
 | 멱등성 | `documents.file_hash` UNIQUE + `chunks(doc_id, content_hash)` UNIQUE | 재실행/재크롤 안전 |
+
+**라벨 컨벤션** (`tax_type`, `doc_version`)
+
+| 필드 | kind | 형식 | 예시 |
+|---|---|---|---|
+| `tax_type` | 모든 kind | `<세목>-<카테고리>` | `vat-general`, `vat-simplified`, `vat-common` |
+| `doc_version` | `pdf` (안내자료) | `YYYY` 또는 `YYYY-Nq` | `2025-1q`, `2026` |
+| `doc_version` | `law` | `YYYY-MM-DD-법령번호` | `2025-07-01-법률34501호` |
+| `doc_version` | `html` | `crawled-YYYY-MM-DD` | `crawled-2026-05-01` |
+
+세목 prefix(`vat-`)는 향후 다세목 확장(`inc-`/`corp-` 등)에 자연스럽게 열어두려는 강제. `doc_version`은 자유 라벨이지만 kind별 컨벤션을 따르며 `documents.version` 컬럼에 저장된다 — 정렬·최신판정 로직은 v2(다버전 자료가 쌓일 때).
 
 모듈: `services/ingest-py/src/ingest/{fetch, chunk, embed, orchestrate, gateway}.py` + `sources/{pdf,html,law,base}.py` — 각각 pytest. CLI는 `scripts/ingest.py`(단건) / `scripts/ingest_all.py`(레지스트리 순회) 두 개로 얇게.
 

@@ -26,14 +26,19 @@ def _to_db_row(
     chunk: dict[str, Any],
     embedding: list[float],
     doc_uuid: UUID,
+    *,
     kind: str,
+    tax_type: str,
+    doc_version: str,
 ) -> dict[str, Any]:
     """청크 dict + embedding → DB row 매핑.
 
-    spec metadata jsonb 정책에 따라 검색 predicate에 안 쓰이는 필드들
-    (section_ordinal/chunk_ordinal/token_count/anchor)을 metadata로 흡수.
-    section_path는 W1 청크가 단일 레벨 heading만 가지므로 그대로 매핑 — 향후
-    hierarchical chunker 도입 시 같이 갱신.
+    spec §3.1 메타 정의에 따라 jsonb로 흡수:
+    - 검색 predicate(`tax_type`/`doc_version`/`kind`) — `metadata->>` 로 WHERE 가능
+    - 디버깅·렌더링용(`section_ordinal`/`chunk_ordinal`/`token_count`/`anchor`)
+    `doc_version`은 documents.version과 중복이지만 chunk 단위 컨텍스트 렌더링·필터에서
+    join 없이 바로 보이게 하려는 의도(spec §3.1 표).
+    section_path는 W1 청크가 단일 레벨 heading만 가지므로 그대로 매핑.
     """
     return {
         "doc_id": doc_uuid,
@@ -44,6 +49,8 @@ def _to_db_row(
         "embedding": embedding,
         "metadata": {
             "kind": kind,
+            "tax_type": tax_type,
+            "doc_version": doc_version,
             "section_ordinal": chunk["section_ordinal"],
             "chunk_ordinal": chunk["chunk_ordinal"],
             "token_count": chunk["token_count"],
@@ -98,12 +105,14 @@ def main() -> int:
             # documents 먼저 — chunks의 doc_id FK는 여기서 받은 uuid가 들어가야 함.
             # file_hash는 fetch 단계에서 이미 계산된 manifest sha256을 그대로 사용
             # (재계산 회피 + fetch 단계의 truth와 일치).
+            # version은 sources.json의 라벨(spec §3.1 컨벤션, pdf=YYYY-Nq) 직사용 —
+            # issued_year 추론은 분기 정보 손실되어 제거.
             doc_uuid = upsert_document(
                 conn,
                 title=entry["title"],
                 file_hash=mani["sha256"],
                 source_url=entry.get("url"),
-                version=str(entry["issued_year"]) if entry.get("issued_year") else None,
+                version=entry["version"],
             )
 
             # 청크 JSON과 임베딩 JSON은 분리 저장 — content_hash로 join해야 청크 재생성 후
@@ -112,7 +121,14 @@ def main() -> int:
 
             try:
                 rows = [
-                    _to_db_row(c, by_hash[c["content_hash"]], doc_uuid, kind=entry.get("kind", "pdf"))
+                    _to_db_row(
+                        c,
+                        by_hash[c["content_hash"]],
+                        doc_uuid,
+                        kind=entry.get("kind", "pdf"),
+                        tax_type=entry["tax_type"],
+                        doc_version=entry["version"],
+                    )
                     for c in chunks
                 ]
             except KeyError as exc:
