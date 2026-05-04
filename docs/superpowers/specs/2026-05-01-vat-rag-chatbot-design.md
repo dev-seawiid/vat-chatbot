@@ -294,6 +294,8 @@ user:   <context>{retrieved chunks 8개를 [1]~[8] 번호로}</context>
 - `claude-sonnet-4-6` 기본, 어려운 케이스만 `claude-opus-4-7` toggle
 - Vercel AI SDK `streamText` + `tools`
 - prompt caching: 시스템 프롬프트 + tool 정의에 `cache_control: ephemeral`
+- 토이 학습 단계 deviation: 비용 0 운영을 위해 `gemini-2.5-flash`(Google AI Studio 무료 티어)
+  로 갈음. AI SDK 추상으로 호출 코드 동일, prompt caching은 anthropic 전용이라 미적용.
 
 **Tool calling**
 | 도구 | 역할 |

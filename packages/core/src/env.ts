@@ -16,6 +16,11 @@ const Env = z.object({
   // Voyage 키는 placeholder("00")여도 zod는 통과 — 실제 호출 시점에 401로 명시 실패시켜
   // "키가 잘못됐다"는 신호가 빠르게 표면화되도록 둔다(빈 문자열만 즉시 거부).
   VOYAGE_API_KEY: z.string().min(1, "VOYAGE_API_KEY is required"),
+  // @ai-sdk/google가 자동으로 lookup하는 표준 환경변수 이름. AI Studio(https://aistudio.google.com/apikey)
+  // 무료 티어로 토이 운영. 배포 시 vendor 교체하려면 model.ts 도입(별도 작업).
+  GOOGLE_GENERATIVE_AI_API_KEY: z
+    .string()
+    .min(1, "GOOGLE_GENERATIVE_AI_API_KEY is required"),
 });
 
 export const env = Env.parse(process.env);

@@ -17,6 +17,7 @@
     "db:generate": "pnpm --filter @vat/core db:generate",
     "db:migrate": "pnpm --filter @vat/core db:migrate",
     "db:studio": "pnpm --filter @vat/core db:studio",
-    "core:query": "pnpm --filter @vat/core query"
+    "core:query": "pnpm --filter @vat/core query",
+    "core:ask": "pnpm --filter @vat/core ask"
   }
 }

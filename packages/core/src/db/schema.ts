@@ -10,9 +10,22 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
+// spec §3.4 인용 객체 — 별도 모듈을 두지 않고 schema와 함께 두어 jsonb 컬럼 타이핑에 직접 사용.
+// rag/ 레이어는 이 타입을 import해 retrieve 결과를 변환한다.
+export type Citation = {
+  chunk_id: string;
+  doc_id: string;
+  doc_title: string;
+  doc_version: string | null;
+  page: number | null;
+  section_path: string | null;
+  snippet: string;
+};
+
 // 데이터 모델은 spec §2가 정의한다 — 본 파일이 그 spec을 코드로 구현하는 단일 진실.
-// W1에선 documents + chunks만 정의하고, 나머지(conversations/messages/feedback/audit_log/
-// eval_*/users)는 도입되는 주차(W2~W4)에 추가한다.
+// W1: documents + chunks (ingest)
+// W3: conversations + messages (chat 영속) — feedback/audit_log/eval_*/users는 W3~W4에 추가
+// users 테이블은 W4 NextAuth와 함께 도입 — 그때까지 conversations.user_id는 FK 제약 없는 uuid.
 
 export const documents = pgTable("documents", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -56,5 +69,42 @@ export const chunks = pgTable(
       "hnsw",
       t.embedding.op("vector_cosine_ops"),
     ),
+  }),
+);
+
+export const conversations = pgTable("conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // user_id FK는 W4 NextAuth와 함께 — 지금은 nullable uuid로 두어 CLI/익명 호출 허용.
+  userId: uuid("user_id"),
+  title: text("title"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    // spec §3.4 인용 객체 배열 — UI [n] 클릭 시 모달 데이터 소스. 빈 배열은 도구 응답 등 인용 없는 메시지.
+    citations: jsonb("citations").$type<Citation[]>().notNull().default([]),
+    // retrieve가 골라낸 청크 ID — Langfuse trace의 retrieve span과 join 키 역할.
+    retrievedChunkIds: uuid("retrieved_chunk_ids").array(),
+    model: text("model"),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    traceId: text("trace_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    conversationIdx: index("idx_messages_conversation_id").on(t.conversationId),
   }),
 );

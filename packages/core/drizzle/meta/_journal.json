@@ -8,6 +8,13 @@
       "when": 1777897333712,
       "tag": "0000_brainy_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777900255258,
+      "tag": "0001_oval_sentinel",
+      "breakpoints": true
     }
   ]
 }
