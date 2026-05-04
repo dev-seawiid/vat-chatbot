@@ -14,6 +14,9 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
-    "db:psql": "docker compose exec postgres psql -U vat_user -d vat_db"
+    "db:psql": "docker compose exec postgres psql -U vat_user -d vat_db",
+    "db:generate": "pnpm --filter @vat/core db:generate",
+    "db:migrate": "pnpm --filter @vat/core db:migrate",
+    "db:studio": "pnpm --filter @vat/core db:studio"
   }
 }
