@@ -44,6 +44,11 @@ def main() -> int:
         chunks = chunk_extract_result(
             result, max_tokens=DEFAULT_MAX_TOKENS, overlap=DEFAULT_OVERLAP
         )
+        # TODO(v2): doc 내 content_hash 중복 skip — extract가 PDF 챕터 시작부의
+        # 좌/우 페이지(같은 헤더 텍스트)를 page별로 별도 section으로 emit해서
+        # nts-vat-2025-2q-manual은 415→209로 약 50%가 중복. DB UNIQUE 제약이
+        # load 시 흡수하므로 검색·답변엔 무영향이지만, 다수 PDF 추가 시 임베딩
+        # API 비용이 그만큼 낭비. 여기서 seen=set() 으로 1~2줄 dedup이면 충분.
         if chunks:
             avg = sum(c.token_count for c in chunks) // len(chunks)
             mx = max(c.token_count for c in chunks)
