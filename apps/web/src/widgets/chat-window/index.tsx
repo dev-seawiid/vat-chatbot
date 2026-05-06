@@ -99,30 +99,40 @@ export function ChatWindow() {
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto py-8 [scrollbar-width:thin]"
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-relevant="additions text"
+        aria-label="대화 내용"
       >
         {isEmpty ? (
           <EmptyState onSelectPrompt={setDraft} />
         ) : (
           <div className="space-y-7">
-            {messages.map((m) => {
-              const text = getText(m);
-              const citations = getCitations(m);
-              const isLast = m.id === lastMessageId;
-              const messageStreaming =
-                isStreaming && isLast && m.role === "assistant";
-              return (
-                <MessageBubble
-                  key={m.id}
-                  role={m.role === "user" ? "user" : "assistant"}
-                  text={text}
-                  citations={citations}
-                  isStreaming={messageStreaming}
-                  onCiteClick={(n) =>
-                    openCitationPanel({ citations, selected: n })
-                  }
-                />
-              );
-            })}
+            {messages
+              .filter(
+                (m): m is ChatUIMessage & { role: "user" | "assistant" } =>
+                  m.role === "user" || m.role === "assistant",
+              )
+              .map((m) => {
+                const text = getText(m);
+                const citations = getCitations(m);
+                const isLast = m.id === lastMessageId;
+                const messageStreaming =
+                  isStreaming && isLast && m.role === "assistant";
+                return (
+                  <MessageBubble
+                    key={m.id}
+                    role={m.role}
+                    text={text}
+                    citations={citations}
+                    isStreaming={messageStreaming}
+                    onCiteClick={(n) =>
+                      openCitationPanel({ citations, selected: n })
+                    }
+                  />
+                );
+              })}
           </div>
         )}
       </div>

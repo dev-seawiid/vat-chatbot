@@ -72,18 +72,23 @@ export async function POST(req: Request) {
       writer.write({ type: "text-end", id: textId });
 
       const meta = await finish;
-      await core.gateway.messages.savePair({
-        conversationId: body.conversationId,
-        query,
-        text: meta.text,
-        citations,
-        retrievedChunkIds: chunks.map((c) => c.chunk_id),
-        model: meta.model,
-        latencyMs: Date.now() - startedAt,
-        inputTokens: meta.inputTokens,
-        outputTokens: meta.outputTokens,
-        traceId: null,
-      });
+      try {
+        await core.gateway.messages.savePair({
+          conversationId: body.conversationId,
+          query,
+          text: meta.text,
+          citations,
+          retrievedChunkIds: chunks.map((c) => c.chunk_id),
+          model: meta.model,
+          latencyMs: Date.now() - startedAt,
+          inputTokens: meta.inputTokens,
+          outputTokens: meta.outputTokens,
+          traceId: null,
+        });
+      } catch (err) {
+        // spec §4 — persist 실패는 답변이 이미 보여진 상태이므로 사용자 영향 없이 서버 로그만.
+        console.error("[persist] savePair failed:", err);
+      }
     },
   });
 

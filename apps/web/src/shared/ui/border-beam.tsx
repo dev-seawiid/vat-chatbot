@@ -1,6 +1,6 @@
 "use client"
 
-import { motion, MotionStyle, Transition } from "motion/react"
+import { motion, MotionStyle, Transition, useReducedMotion } from "motion/react"
 
 import { cn } from "@/shared/lib/utils"
 
@@ -64,6 +64,8 @@ export const BorderBeam = ({
   initialOffset = 0,
   borderWidth = 1,
 }: BorderBeamProps) => {
+  const shouldReduceMotion = useReducedMotion()
+  if (shouldReduceMotion) return null
   return (
     <div
       className="pointer-events-none absolute inset-0 rounded-[inherit] border-(length:--border-beam-width) border-transparent mask-[linear-gradient(transparent,transparent),linear-gradient(#000,#000)] mask-intersect [mask-clip:padding-box,border-box]"

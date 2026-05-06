@@ -1,9 +1,10 @@
 "use client"
 
-import { memo } from "react"
+import { createElement, memo } from "react"
 import {
   AnimatePresence,
   motion,
+  useReducedMotion,
   Variants,
   type DOMMotionComponents,
   type MotionProps,
@@ -343,7 +344,12 @@ const TextAnimateBase = ({
   accessible = true,
   ...props
 }: TextAnimateProps) => {
+  const shouldReduceMotion = useReducedMotion()
   const MotionComponent = motionElements[Component]
+
+  if (shouldReduceMotion) {
+    return createElement(Component, { className }, children)
+  }
 
   let segments: string[] = []
   switch (by) {

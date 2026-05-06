@@ -71,6 +71,7 @@ export function Composer({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="부가세에 대해 물어보세요 — 예: 간이과세자 신고는 어떻게 하나요?"
+          aria-label="질문 입력"
           disabled={isStreaming}
           maxLength={MAX_LENGTH}
           rows={3}
