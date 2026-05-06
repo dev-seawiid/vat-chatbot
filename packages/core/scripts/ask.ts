@@ -1,5 +1,6 @@
-import { closeDb } from "../src/db/client";
-import { ask } from "../src/rag/generate";
+import "dotenv/config";
+
+import { createCore, parseEnv } from "../src";
 
 // 검증 CLI — apps/web 진입 전에 retrieve+generate end-to-end를 눈으로 확인하는 thin entrypoint.
 // 사용:
@@ -34,40 +35,53 @@ function parseArgs(argv: string[]): Args {
 }
 
 async function main(): Promise<void> {
-  const { query, taxType, k, model } = parseArgs(process.argv.slice(2));
-  const filter = taxType ? { tax_type: taxType } : undefined;
+  const env = parseEnv(process.env);
+  const core = createCore({
+    databaseUrl: env.DATABASE_URL,
+    voyageApiKey: env.VOYAGE_API_KEY,
+    googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+  });
 
-  console.log(`\nQuery   : ${query}`);
-  console.log(`k       : ${k}`);
-  console.log(`model   : ${model ?? "(default)"}`);
-  console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+  try {
+    const { query, taxType, k, model } = parseArgs(process.argv.slice(2));
+    const filter = taxType ? { tax_type: taxType } : undefined;
 
-  const { textStream, citations, finish } = await ask(query, { k, filter, model });
+    console.log(`\nQuery   : ${query}`);
+    console.log(`k       : ${k}`);
+    console.log(`model   : ${model ?? "(default)"}`);
+    console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
 
-  console.log("--- answer ---");
-  for await (const chunk of textStream) process.stdout.write(chunk);
-  console.log("\n--------------\n");
+    const { textStream, citations, finish } = await core.ask(query, {
+      k,
+      filter,
+      model,
+    });
 
-  const meta = await finish;
-  console.log(
-    `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}\n`,
-  );
+    console.log("--- answer ---");
+    for await (const chunk of textStream) process.stdout.write(chunk);
+    console.log("\n--------------\n");
 
-  console.log("--- citations ---");
-  for (let i = 0; i < citations.length; i++) {
-    const c = citations[i];
+    const meta = await finish;
     console.log(
-      `[${i + 1}] ${c.doc_title}${c.doc_version ? ` · ${c.doc_version}` : ""}${
-        c.page != null ? ` · p.${c.page}` : ""
-      }`,
+      `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}\n`,
     );
-    if (c.section_path) console.log(`    ${c.section_path}`);
+
+    console.log("--- citations ---");
+    for (let i = 0; i < citations.length; i++) {
+      const c = citations[i];
+      console.log(
+        `[${i + 1}] ${c.doc_title}${c.doc_version ? ` · ${c.doc_version}` : ""}${
+          c.page != null ? ` · p.${c.page}` : ""
+        }`,
+      );
+      if (c.section_path) console.log(`    ${c.section_path}`);
+    }
+  } finally {
+    await core.close();
   }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exitCode = 1;
-  })
-  .finally(() => closeDb());
+main().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

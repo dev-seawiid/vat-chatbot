@@ -1,11 +1,9 @@
-import { resolve } from "node:path";
+import "dotenv/config";
 
-import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
-// .env는 monorepo 루트에 한 곳만 둔다 — services/ingest-py(Python)와 동일 정책으로
-// 양 plane(TS·Python)이 같은 DATABASE_URL을 본다.
-config({ path: resolve(__dirname, "../../.env") });
+// drizzle-kit은 cwd=packages/core로 실행되므로 dotenv가 packages/core/.env를 자동 로드.
+// (CLI 진입점이라 본 파일이 직접 로딩 책임을 진다 — 라이브러리 코드는 검증만.)
 
 export default defineConfig({
   schema: "./src/db/schema.ts",

@@ -1,0 +1,70 @@
+import { type Core, createCore, parseEnv } from "@vat/core";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+
+import { lastUserText } from "@/entities/message/lib/parts";
+import type { ChatUIMessage } from "@/entities/message/types";
+
+export const runtime = "nodejs";
+
+// Next.js dev mode HMR에서 모듈이 재평가되며 새 postgres 풀이 누적되는 문제를 막기
+// 위해 globalThis에 core 인스턴스를 캐시한다 (Prisma·Drizzle 가이드와 동일 패턴).
+const globalForCore = globalThis as unknown as { __vatCore?: Core };
+
+function getCore(): Core {
+  if (!globalForCore.__vatCore) {
+    const env = parseEnv(process.env);
+    globalForCore.__vatCore = createCore({
+      databaseUrl: env.DATABASE_URL,
+      voyageApiKey: env.VOYAGE_API_KEY,
+      googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    });
+  }
+  return globalForCore.__vatCore;
+}
+
+type ChatRequestBody = {
+  messages: ChatUIMessage[];
+  conversationId: string;
+};
+
+export async function POST(req: Request) {
+  const startedAt = Date.now();
+  const body = (await req.json()) as ChatRequestBody;
+  const query = lastUserText(body.messages);
+
+  if (!query) {
+    return new Response("empty query", { status: 400 });
+  }
+
+  const core = getCore();
+  const { textStream, citations, chunks, finish } = await core.ask(query);
+
+  const stream = createUIMessageStream<ChatUIMessage>({
+    execute: async ({ writer }) => {
+      writer.write({ type: "data-citations", data: citations });
+
+      const textId = crypto.randomUUID();
+      writer.write({ type: "text-start", id: textId });
+      for await (const delta of textStream) {
+        writer.write({ type: "text-delta", id: textId, delta });
+      }
+      writer.write({ type: "text-end", id: textId });
+
+      const meta = await finish;
+      await core.gateway.messages.savePair({
+        conversationId: body.conversationId,
+        query,
+        text: meta.text,
+        citations,
+        retrievedChunkIds: chunks.map((c) => c.chunk_id),
+        model: meta.model,
+        latencyMs: Date.now() - startedAt,
+        inputTokens: meta.inputTokens,
+        outputTokens: meta.outputTokens,
+        traceId: null,
+      });
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
+}

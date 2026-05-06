@@ -494,7 +494,7 @@ ingest 실행
 
 **모노레포** (pnpm workspaces): `apps/web` · `packages/core` · `services/ingest-py`
 
-- **apps/web** — Next.js 15 (App Router) / TypeScript / Vercel AI SDK
+- **apps/web** — Next.js 16 (App Router) / TypeScript / Vercel AI SDK
 - **packages/core** — Drizzle ORM (스키마 단일 소스) / postgres.js / zod
 - **services/ingest-py** — Python 3.12 / uv / psycopg + pgvector / pdfplumber / trafilatura · selectolax / httpx / pydantic + pydantic-settings / voyageai
 - **Infra** — Neon Postgres + pgvector / Anthropic Claude (Sonnet 4.6) + Voyage-3 / Langfuse / Inngest cron(W3+) / GitHub Actions / Docker Compose

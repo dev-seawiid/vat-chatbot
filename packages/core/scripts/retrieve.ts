@@ -1,5 +1,6 @@
-import { closeDb } from "../src/db/client";
-import { retrieve } from "../src/rag/retrieve";
+import "dotenv/config";
+
+import { createCore, parseEnv } from "../src";
 
 // 검증 CLI — apps/web 진입 전에 retrieval 결과를 눈으로 확인하는 thin entrypoint.
 // 사용:
@@ -32,32 +33,41 @@ function preview(text: string, max = 200): string {
 }
 
 async function main(): Promise<void> {
-  const { query, taxType, k } = parseArgs(process.argv.slice(2));
-  const filter = taxType ? { tax_type: taxType } : undefined;
+  const env = parseEnv(process.env);
+  const core = createCore({
+    databaseUrl: env.DATABASE_URL,
+    voyageApiKey: env.VOYAGE_API_KEY,
+    googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+  });
 
-  console.log(`\nQuery   : ${query}`);
-  console.log(`k       : ${k}`);
-  console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+  try {
+    const { query, taxType, k } = parseArgs(process.argv.slice(2));
+    const filter = taxType ? { tax_type: taxType } : undefined;
 
-  const results = await retrieve(query, { k, filter });
-  if (results.length === 0) {
-    console.log("(no results)");
-    return;
-  }
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    console.log(
-      `[${i + 1}] sim=${r.similarity.toFixed(3)}  ver=${r.doc_version ?? "-"}  page=${r.page ?? "-"}`,
-    );
-    console.log(`    ${r.doc_title}`);
-    console.log(`    ${r.section_path ?? "-"}`);
-    console.log(`    ${preview(r.content)}\n`);
+    console.log(`\nQuery   : ${query}`);
+    console.log(`k       : ${k}`);
+    console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+
+    const results = await core.retrieve(query, { k, filter });
+    if (results.length === 0) {
+      console.log("(no results)");
+      return;
+    }
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      console.log(
+        `[${i + 1}] sim=${r.similarity.toFixed(3)}  ver=${r.doc_version ?? "-"}  page=${r.page ?? "-"}`,
+      );
+      console.log(`    ${r.doc_title}`);
+      console.log(`    ${r.section_path ?? "-"}`);
+      console.log(`    ${preview(r.content)}\n`);
+    }
+  } finally {
+    await core.close();
   }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exitCode = 1;
-  })
-  .finally(() => closeDb());
+main().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

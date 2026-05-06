@@ -5,13 +5,16 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# .env는 monorepo 루트 한 곳에서만 관리. 서비스별로 흩어두면 키 동기화가 깨진다.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# 각 plane은 자기 .env만 본다 — apps/web/Next.js·packages/core·services/ingest-py가
+# 각자 자기 디렉토리의 .env로 컨트랙트를 표현. 본 service는 Voyage 임베딩 + DB 적재만
+# 쓰고 Gemini 키는 사용하지 않으므로 응답 plane과 키가 다르다.
+# parents: [0]=ingest, [1]=src, [2]=ingest-py 루트.
+_SERVICE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=_REPO_ROOT / ".env",
+        env_file=_SERVICE_ROOT / ".env",
         env_file_encoding="utf-8",
         # 다른 서비스용 키도 같은 .env에 들어올 수 있으므로 알 수 없는 변수는 무시.
         extra="ignore",

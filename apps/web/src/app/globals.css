@@ -1,0 +1,534 @@
+@import "tailwindcss";
+
+/* Pretendard Variable은 layout.tsx에서 npm 패키지(pretendard)로 로드. */
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================================
+ * VAT TOY — DARK TERMINAL
+ *
+ * 토대: 거의 검정 베이스 + 옐로우 단일 액센트. Linear/Vercel 톤에
+ * 모션을 얹는다. 백그라운드는 dot pattern + aurora glow로 깊이를 만든다.
+ * ========================================================================= */
+
+@theme inline {
+  /* 폰트 변수 — layout.tsx에서 next/font가 주입 */
+  --font-sans: "Pretendard Variable", Pretendard, var(--font-jet),
+    -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-display: var(--font-instrument), "Pretendard Variable", Georgia, serif;
+  --font-mono: var(--font-jet), "JetBrains Mono", ui-monospace, monospace;
+
+  /* Sharp 컷 기본 */
+  --radius-none: 0;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* 다크 팔레트 */
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--surface-1);
+  --color-card-foreground: var(--fg);
+  --color-popover: var(--surface-2);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--yellow);
+  --color-primary-foreground: var(--bg);
+  --color-secondary: var(--surface-1);
+  --color-secondary-foreground: var(--fg);
+  --color-muted: var(--surface-1);
+  --color-muted-foreground: var(--fg-muted);
+  --color-accent: var(--yellow);
+  --color-accent-foreground: var(--bg);
+  --color-destructive: var(--vermilion);
+  --color-destructive-foreground: var(--fg);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--yellow);
+
+  /* 직접 노출되는 톤 토큰 */
+  --color-yellow: var(--yellow);
+  --color-yellow-soft: var(--yellow-soft);
+  --color-yellow-glow: var(--yellow-glow);
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-fg-muted: var(--fg-muted);
+  --color-border-subtle: var(--border-subtle);
+  --color-vermilion: var(--vermilion);
+  --animate-aurora: aurora 8s ease-in-out infinite alternate;
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  @keyframes aurora {
+  0% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  25% {
+    background-position: 50% 100%;
+    transform: rotate(5deg) scale(1.1);
+    }
+  50% {
+    background-position: 100% 50%;
+    transform: rotate(-3deg) scale(0.95);
+    }
+  75% {
+    background-position: 50% 0%;
+    transform: rotate(3deg) scale(1.05);
+    }
+  100% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  }
+  @keyframes shimmer-slide {
+  to {
+    transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  @keyframes spin-around {
+  0% {
+    transform: translateZ(0) rotate(0);
+    }
+  15%, 35% {
+    transform: translateZ(0) rotate(90deg);
+    }
+  65%, 85% {
+    transform: translateZ(0) rotate(270deg);
+    }
+  100% {
+    transform: translateZ(0) rotate(360deg);
+    }
+  }
+  @keyframes marquee {
+  from {
+    transform: translateX(0);
+    }
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+    }
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
+}
+
+:root {
+  /* 코어 옐로우 */
+  --yellow: #ffe600;
+  --yellow-soft: #fff7b0;
+  --yellow-glow: rgb(255 230 0 / 0.5);
+
+  /* 다크 stack */
+  --bg: #0a0a0b;
+  --bg-2: #0e0e10;
+  --surface-1: #131316;
+  --surface-2: #1a1a1f;
+  --surface-3: #232329;
+
+  --fg: #f5f5f4;
+  --fg-soft: #a1a1aa;
+  --fg-muted: #71717a;
+
+  --border: rgb(255 255 255 / 0.08);
+  --border-subtle: rgb(255 255 255 / 0.05);
+
+  --vermilion: #ff5b3a;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    background: var(--bg);
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--yellow);
+    color: var(--bg);
+  }
+
+  ::placeholder {
+    color: var(--fg-muted);
+  }
+
+  /* 스크롤바 — 다크 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--surface-3);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-muted);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    font-feature-settings: "ss01", "ss02";
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero", "ss02";
+  }
+}
+
+/* =========================================================================
+ * 매직 백그라운드 유틸
+ * ========================================================================= */
+
+@layer utilities {
+  /* Dot Pattern — magic ui DotPattern 영감, SVG 인라인 */
+  .bg-dot-pattern {
+    background-image: radial-gradient(
+      rgb(255 255 255 / 0.07) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+
+  .bg-dot-pattern-strong {
+    background-image: radial-gradient(
+      rgb(255 230 0 / 0.18) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+
+  /* Grid Pattern */
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  /* Aurora — 라디얼 옐로우 글로우, 장식용 */
+  .bg-aurora-yellow {
+    background:
+      radial-gradient(
+        ellipse 800px 600px at 80% -10%,
+        rgb(255 230 0 / 0.12),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 600px 400px at 10% 30%,
+        rgb(255 230 0 / 0.04),
+        transparent 60%
+      );
+  }
+
+  /* 페이드 마스크 — 백그라운드 패턴이 가장자리에서 페이드 */
+  .mask-fade-edges {
+    -webkit-mask-image: radial-gradient(
+      ellipse 80% 60% at 50% 40%,
+      black,
+      transparent
+    );
+    mask-image: radial-gradient(
+      ellipse 80% 60% at 50% 40%,
+      black,
+      transparent
+    );
+  }
+
+  /* Glassmorphism */
+  .glass {
+    background: rgb(19 19 22 / 0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .glass-strong {
+    background: rgb(10 10 11 / 0.84);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+
+  /* Text Shimmer — 스트리밍 텍스트용 sweep */
+  .text-shimmer {
+    background: linear-gradient(
+      110deg,
+      var(--fg) 40%,
+      var(--yellow) 50%,
+      var(--fg) 60%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-sweep 2.4s ease-in-out infinite;
+  }
+
+  /* Border Beam wrapper — magic ui BorderBeam 영감 */
+  .border-beam {
+    position: relative;
+    isolation: isolate;
+  }
+  .border-beam::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--beam-angle, 0deg),
+      transparent 0deg,
+      var(--yellow) 60deg,
+      transparent 120deg,
+      transparent 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 240ms ease-out;
+    animation: beam-rotate 4s linear infinite paused;
+  }
+  .border-beam[data-active="true"]::before,
+  .border-beam:focus-within::before {
+    opacity: 1;
+    animation-play-state: running;
+  }
+
+  /* Magic Card — mouse-follow glow */
+  .magic-card {
+    position: relative;
+    isolation: isolate;
+  }
+  .magic-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(
+      400px circle at var(--mx, 50%) var(--my, 50%),
+      rgb(255 230 0 / 0.18),
+      transparent 40%
+    );
+    opacity: 0;
+    transition: opacity 320ms ease-out;
+  }
+  .magic-card:hover::before {
+    opacity: 1;
+  }
+
+  /* Stagger entry */
+  .stagger-enter {
+    opacity: 0;
+    animation: fade-up 700ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+  }
+
+  .blur-in {
+    animation: blur-in 480ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+  }
+
+  .animate-fade-up {
+    animation: fade-up 520ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+  }
+  .animate-fade-in {
+    animation: fade-in 200ms ease-out forwards;
+  }
+  .animate-fade-out {
+    animation: fade-out 160ms ease-in forwards;
+  }
+  .animate-slide-in-right {
+    animation: slide-in-right 360ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+  }
+  .animate-slide-out-right {
+    animation: slide-out-right 240ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+  .animate-caret-blink {
+    animation: caret-blink 1.05s step-end infinite;
+  }
+  .animate-rule-grow {
+    animation: rule-grow 800ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+    transform-origin: left;
+  }
+  .animate-pulse-yellow {
+    animation: pulse-yellow 2s ease-in-out infinite;
+  }
+  .animate-float-slow {
+    animation: float-slow 7s ease-in-out infinite;
+  }
+}
+
+/* =========================================================================
+ * 키프레임
+ * ========================================================================= */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes blur-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes rule-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes pulse-yellow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(255 230 0 / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgb(255 230 0 / 0);
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes beam-rotate {
+  to {
+    --beam-angle: 360deg;
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* CSS @property — 회전 가능한 angle 변수 */
+@property --beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* =========================================================================
+ * 모션 감소 환경
+ * ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -11,7 +11,7 @@
 W3 RAG 응답 plane의 사용자 진입점인 Next.js 앱을 스캐폴드한다. retrieve+generate end-to-end는 `pnpm core:ask`로 검증 완료(`packages/core/scripts/ask.ts`); 본 슬라이스는 그 결과를 브라우저로 끌어올려 **인용 검수 워크플로**(답변 본문 + 우측 사이드 패널)를 시각화하는 것이 핵심이다.
 
 ### 0.2 범위 (W3 apps/web)
-- `apps/web` Next.js 15 App Router 스캐폴드, FSD(Feature-Sliced Design) 엄격 적용
+- `apps/web` Next.js 16 App Router 스캐폴드, FSD(Feature-Sliced Design) 엄격 적용 (스캐폴드 시점 16.2.4 — `apps/web/AGENTS.md` 안내대로 `node_modules/next/dist/docs/`에서 변경된 API 확인하며 작성)
 - 홈 페이지(`/`) — 서비스 설명 + "채팅 시작" CTA
 - 채팅 페이지(`/chat`) — RAG 답변 스트리밍, `[n]` 인용 chip, 우측 슬라이드 인용 패널
 - `POST /api/chat` — `@vat/core::ask` 호출, AI SDK UIMessage stream으로 텍스트+인용 동시 송출
@@ -253,7 +253,7 @@ W3 범위에선 데스크톱 우선, 깨짐만 방지. CitationPanel은 모바�
 
 writing-plans 스킬을 생략한 만큼 거친 가이드만 남긴다 — 실제 진입 시 구현자가 자유롭게 조정.
 
-1. Next.js 15 + Tailwind + shadcn init, FSD 디렉토리 골조
+1. Next.js 16 + Tailwind 4 + shadcn init, FSD 디렉토리 골조
 2. `entities/conversation/lib.storage` + `entities/message`/`citation` 타입·UI
 3. `app/api/chat/route.ts` (스트림 + 영속화)
 4. `features/send-message` (useChat) + `widgets/chat-window`

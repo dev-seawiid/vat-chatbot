@@ -1,11 +1,11 @@
-import { google } from "@ai-sdk/google";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { stepCountIs, streamText } from "ai";
 
 import type { SearchResult } from "../db/gateway";
 import type { Citation } from "../db/schema";
 import { toCitations } from "./citation";
 import { buildUserMessage, SYSTEM_PROMPT } from "./prompt";
-import { retrieve, type RetrieveOptions } from "./retrieve";
+import type { RetrieveFn, RetrieveOptions } from "./retrieve";
 import { tools } from "./tools";
 
 // spec §3.3는 claude-sonnet-4-6을 default로 명시하지만, 토이 학습 단계에서는 무료 티어인
@@ -28,38 +28,52 @@ export type AskResult = {
     inputTokens: number | undefined;
     outputTokens: number | undefined;
     finishReason: string;
+    /** 이번 호출에서 실제로 사용한 모델 ID — messages.model 라벨로 그대로 기록 */
+    model: string;
   }>;
 };
+
+export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
 
 /**
  * spec §3.3 — retrieve로 모은 청크를 [n] 번호로 system+user 메시지에 끼워넣고 streamText.
  * tool-call 라운드트립을 허용하도록 stopWhen=stepCountIs(5) — calc_vat 후 답변 생성까지.
  * messages 영속화는 호출자(api/chat 또는 CLI) 책임 — 본 함수는 순수 합성만.
  */
-export async function ask(
-  query: string,
-  opts: AskOptions = {},
-): Promise<AskResult> {
-  const chunks = await retrieve(query, { k: opts.k, filter: opts.filter });
-  const citations = toCitations(chunks);
+export function createAsk({
+  retrieve,
+  googleApiKey,
+}: {
+  retrieve: RetrieveFn;
+  googleApiKey: string;
+}): AskFn {
+  // provider 인스턴스를 명시 주입 — @ai-sdk/google의 process.env 자동 lookup에 의존하지 않는다.
+  const provider = createGoogleGenerativeAI({ apiKey: googleApiKey });
 
-  const result = streamText({
-    model: google(opts.model ?? DEFAULT_MODEL),
-    system: SYSTEM_PROMPT,
-    prompt: buildUserMessage(query, chunks),
-    tools,
-    stopWhen: stepCountIs(5),
-  });
+  return async (query, opts = {}) => {
+    const chunks = await retrieve(query, { k: opts.k, filter: opts.filter });
+    const citations = toCitations(chunks);
 
-  const finish = (async () => {
-    const usage = await result.usage;
-    return {
-      text: await result.text,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      finishReason: await result.finishReason,
-    };
-  })();
+    const modelId = opts.model ?? DEFAULT_MODEL;
+    const result = streamText({
+      model: provider(modelId),
+      system: SYSTEM_PROMPT,
+      prompt: buildUserMessage(query, chunks),
+      tools,
+      stopWhen: stepCountIs(5),
+    });
 
-  return { textStream: result.textStream, chunks, citations, finish };
+    const finish = (async () => {
+      const usage = await result.usage;
+      return {
+        text: await result.text,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        finishReason: await result.finishReason,
+        model: modelId,
+      };
+    })();
+
+    return { textStream: result.textStream, chunks, citations, finish };
+  };
 }
