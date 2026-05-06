@@ -1,10 +1,21 @@
 import { type Core, createCore, parseEnv } from "@vat/core";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import { z } from "zod";
 
 import { lastUserText } from "@/entities/message/lib/parts";
 import type { ChatUIMessage } from "@/entities/message/types";
 
 export const runtime = "nodejs";
+
+// 입력 검증 한도 — DoS / 토큰 비용 폭주 방어. 값은 spec §3.3 retrieval k=8과 multi-turn
+// 대화 평균 길이를 감안한 보수 추정. 초과 시 400 반환.
+const MAX_MESSAGES = 50;
+const MAX_QUERY_LENGTH = 2000;
+
+const ChatRequestBodySchema = z.object({
+  messages: z.array(z.unknown()).max(MAX_MESSAGES),
+  conversationId: z.string().uuid(),
+});
 
 // Next.js dev mode HMR에서 모듈이 재평가되며 새 postgres 풀이 누적되는 문제를 막기
 // 위해 globalThis에 core 인스턴스를 캐시한다 (Prisma·Drizzle 가이드와 동일 패턴).
@@ -22,18 +33,28 @@ function getCore(): Core {
   return globalForCore.__vatCore;
 }
 
-type ChatRequestBody = {
-  messages: ChatUIMessage[];
-  conversationId: string;
-};
-
 export async function POST(req: Request) {
   const startedAt = Date.now();
-  const body = (await req.json()) as ChatRequestBody;
+
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return new Response("invalid json", { status: 400 });
+  }
+
+  const parsed = ChatRequestBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return new Response("invalid request body", { status: 400 });
+  }
+  const body = parsed.data as { messages: ChatUIMessage[]; conversationId: string };
   const query = lastUserText(body.messages);
 
   if (!query) {
     return new Response("empty query", { status: 400 });
+  }
+  if (query.length > MAX_QUERY_LENGTH) {
+    return new Response("query too long", { status: 400 });
   }
 
   const core = getCore();

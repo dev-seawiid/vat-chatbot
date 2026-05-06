@@ -4,7 +4,7 @@ import { stepCountIs, streamText } from "ai";
 import type { SearchResult } from "../db/gateway";
 import type { Citation } from "../db/schema";
 import { toCitations } from "./citation";
-import { buildUserMessage, SYSTEM_PROMPT } from "./prompt";
+import { buildSystemMessage } from "./prompt";
 import type { RetrieveFn, RetrieveOptions } from "./retrieve";
 import { tools } from "./tools";
 
@@ -36,7 +36,8 @@ export type AskResult = {
 export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
 
 /**
- * spec §3.3 — retrieve로 모은 청크를 [n] 번호로 system+user 메시지에 끼워넣고 streamText.
+ * spec §3.3 — retrieve로 모은 청크를 [n] 번호로 system 메시지에 끼워넣고 streamText.
+ * 사용자 query는 user role 그대로 — context 구분자 escape 없이도 prompt injection 차단.
  * tool-call 라운드트립을 허용하도록 stopWhen=stepCountIs(5) — calc_vat 후 답변 생성까지.
  * messages 영속화는 호출자(api/chat 또는 CLI) 책임 — 본 함수는 순수 합성만.
  */
@@ -57,8 +58,8 @@ export function createAsk({
     const modelId = opts.model ?? DEFAULT_MODEL;
     const result = streamText({
       model: provider(modelId),
-      system: SYSTEM_PROMPT,
-      prompt: buildUserMessage(query, chunks),
+      system: buildSystemMessage(chunks),
+      prompt: query,
       tools,
       stopWhen: stepCountIs(5),
     });

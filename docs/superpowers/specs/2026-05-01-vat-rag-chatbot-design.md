@@ -282,9 +282,11 @@ LIMIT $3;
 **메시지 구조**
 ```
 system: <위 프롬프트>
-user:   <context>{retrieved chunks 8개를 [1]~[8] 번호로}</context>
-        질문: <user query>
+        <context>{retrieved chunks 8개를 [1]~[8] 번호로}</context>
+user:   <user query>
 ```
+retrieved context는 system 영역에 격리한다. 사용자 입력이 `</context>` 같은
+구분자를 포함해도 user role과 분리되어 모델이 system 지시로 오인하지 않는다.
 
 **모델/호출**
 - `claude-sonnet-4-6` 기본, 어려운 케이스만 `claude-opus-4-7` toggle

@@ -9,12 +9,10 @@ export const SYSTEM_PROMPT = `당신은 국세청 공식 자료를 기반으로 
 
 import type { SearchResult } from "../db/gateway";
 
-/**
- * spec §3.3 메시지 구조 — retrieved chunks를 [1]~[k] 번호로 user 메시지에 삽입.
- * doc_version 동거 시 모델이 [3](2025-2q)/[5](2025-1q) 형태로 자연스럽게 비교하도록
- * 헤더에 메타를 노출. 우선순위 정책은 별도 룰로 강제하지 않고 프롬프트가 안내한다.
- */
-export function buildUserMessage(query: string, chunks: SearchResult[]): string {
+// retrieved chunk를 system 영역으로 격리하는 이유: prompt injection 방어.
+// 사용자 입력에 `</context>` 같은 구분자가 들어와도 user role과 격리되어
+// 모델이 system 지시로 오인하지 않도록 한다.
+export function buildSystemMessage(chunks: SearchResult[]): string {
   const ctx = chunks
     .map((c, i) => {
       const meta = [
@@ -29,5 +27,5 @@ export function buildUserMessage(query: string, chunks: SearchResult[]): string 
     })
     .join("\n\n");
 
-  return `<context>\n${ctx}\n</context>\n\n질문: ${query}`;
+  return `${SYSTEM_PROMPT}\n\n<context>\n${ctx}\n</context>`;
 }
