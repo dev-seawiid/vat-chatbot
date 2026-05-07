@@ -28,6 +28,10 @@
 
 명시적 비범위: 멀티 에이전트, 본격 RBAC, fine-tuning, 자체 임베딩 학습,
 **인증(NextAuth/OAuth) — 토이 데모 마찰을 0으로 두기 위해 제외, 익명 접근**.
+**멀티턴 RAG (history-aware retrieval + query rewriting)** — W3까지는 single-turn으로 닫는다.
+multi-turn은 후속 슬라이스 TODO: 답변 단계에서 이전 turn을 model messages에 포함하고,
+검색 단계에서 이전 맥락으로 follow-up query를 재작성하는 두 가지 작업이 필요하다.
+DB 스키마 변경은 없음(`messages`는 이미 `conversationId`로 누적 append).
 
 ---
 

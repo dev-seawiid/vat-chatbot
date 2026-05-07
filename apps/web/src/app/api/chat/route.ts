@@ -7,13 +7,11 @@ import type { ChatUIMessage } from "@/entities/message/types";
 
 export const runtime = "nodejs";
 
-// 입력 검증 한도 — DoS / 토큰 비용 폭주 방어. 값은 spec §3.3 retrieval k=8과 multi-turn
-// 대화 평균 길이를 감안한 보수 추정. 초과 시 400 반환.
-const MAX_MESSAGES = 50;
+// 단일 user query 길이 상한 — 1회 LLM 호출 input 토큰 비용 cap.
 const MAX_QUERY_LENGTH = 2000;
 
 const ChatRequestBodySchema = z.object({
-  messages: z.array(z.unknown()).max(MAX_MESSAGES),
+  messages: z.array(z.unknown()),
   conversationId: z.string().uuid(),
 });
 
@@ -47,7 +45,10 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return new Response("invalid request body", { status: 400 });
   }
-  const body = parsed.data as { messages: ChatUIMessage[]; conversationId: string };
+  const body = parsed.data as {
+    messages: ChatUIMessage[];
+    conversationId: string;
+  };
   const query = lastUserText(body.messages);
 
   if (!query) {

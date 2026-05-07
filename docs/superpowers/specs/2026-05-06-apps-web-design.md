@@ -25,6 +25,12 @@ W3 RAG 응답 plane의 사용자 진입점인 Next.js 앱을 스캐폴드한다.
 - **conversations.title 자동 요약** — W4 (W3은 user query 앞 60자)
 - **Langfuse trace 통합** — W3 별도 슬라이스 (messages.traceId는 nullable로 일단 비워둠)
 - **모바일 최적화** — W3은 데스크톱 우선, 깨짐 방지만
+- **멀티턴 RAG** — W3은 single-turn. 클라이언트 `useChat`은 history 전체를 보내지만
+  서버는 `lastUserText`로 마지막 user 메시지만 추출해 모델·검색에 사용한다. 화면엔
+  이전 turn이 표시되지만 모델은 직전 query만 본다. multi-turn 도입 시 추가 필요:
+  (1) query rewriting — 이전 맥락으로 follow-up query 재작성 후 임베딩,
+  (2) history-aware prompt — 답변 단계에서 이전 turn을 model messages에 포함.
+  TODO: W4 이후 별 슬라이스로 처리.
 
 ### 0.4 핵심 결정 요약
 | # | 결정 | 비고 |
