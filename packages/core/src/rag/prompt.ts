@@ -1,6 +1,10 @@
 // spec §3.3 시스템 프롬프트 — 인용/거절 규칙은 모델 동작의 핵심 invariant.
 // 본문은 spec과 1:1 매칭, 변경 시 spec 동시 갱신.
 
+// 마스터 spec §4.7 실험 비교 키. 프롬프트가 의미 있게 바뀌면 함께 bump해 eval_runs를
+// 같은 라벨 안에서만 비교하도록 한다(과거 run과 혼선 방지).
+export const PROMPT_VERSION = "v1";
+
 export const SYSTEM_PROMPT = `당신은 국세청 공식 자료를 기반으로 답하는 부가세 신고 어시스턴트다.
 - 제공된 <context> 안의 내용만 근거로 답하라.
 - 모든 주장에 [n] 형태로 인용을 붙여라. n은 context의 chunk 번호.

@@ -1,0 +1,314 @@
+import type { EvalItem, Gateway, SaveRunArgs } from "../db/gateway";
+import type { AskFn } from "../rag/generate";
+import {
+  type AxisScores,
+  type GoldenItem,
+  WEIGHTS,
+  partitionKeywords,
+  score,
+  weighted,
+} from "./score";
+
+/**
+ * 2026-05-07 eval 슬라이스 §7 — golden.json 한 항목씩 ask로 답을 받아 score를 매기고
+ * 결과를 eval_runs.results / .summary 형태로 정규화. CLI 진입점은 scripts/eval-run.ts에서
+ * 본 모듈을 import해 사용한다.
+ */
+
+// golden.json 루트 — version은 eval_runs.goldensetVersion에 박제, items는 채점 단위.
+// _source_excerpt / _source_page 같은 underscore 필드는 인간 검수용이라 본 모듈에서 무시한다.
+export type GoldenSet = {
+  version: string;
+  items: GoldenItem[];
+};
+
+// spec §1.1 분배표 — lint가 본 표와 일치하지 않으면 fail.
+type Distribution = {
+  total: number;
+  category: Record<string, number>;
+  tax_type: Record<string, number>;
+  difficulty: Record<string, number>;
+};
+
+const EXPECTED_DISTRIBUTION: Distribution = {
+  total: 30,
+  category: {
+    "기초 신고/마감": 6,
+    "영세율/면세": 6,
+    "매입세액 공제": 6,
+    의제매입: 4,
+    간이과세: 4,
+    가산세: 4,
+  },
+  tax_type: {
+    "vat-common": 15,
+    "vat-general": 10,
+    "vat-simplified": 5,
+  },
+  difficulty: { easy: 10, medium: 14, hard: 6 },
+};
+
+export type LintResult = { ok: boolean; errors: string[] };
+
+/**
+ * spec §1.3 invariant — 카테고리/tax_type/난이도 분포, id 유니크, source_id 정합성을
+ * golden.json에서 직접 검사. 호출자는 ok=false면 exit 1로 막아 commit 전 검출.
+ */
+export function lintGoldenSet(
+  set: GoldenSet,
+  validSourceIds: Set<string>,
+): LintResult {
+  const errors: string[] = [];
+  const items = set.items;
+
+  if (items.length !== EXPECTED_DISTRIBUTION.total) {
+    errors.push(
+      `total mismatch: expected ${EXPECTED_DISTRIBUTION.total}, got ${items.length}`,
+    );
+  }
+
+  const seen = new Set<string>();
+  for (const it of items) {
+    if (seen.has(it.id)) errors.push(`duplicate id: ${it.id}`);
+    seen.add(it.id);
+    if (!validSourceIds.has(it.expected_citation_doc)) {
+      errors.push(
+        `unknown source_id: ${it.id} → ${it.expected_citation_doc}`,
+      );
+    }
+    if (it.expected_keywords.length === 0) {
+      errors.push(`empty keywords: ${it.id}`);
+    }
+  }
+
+  for (const axis of ["category", "tax_type", "difficulty"] as const) {
+    const expected = EXPECTED_DISTRIBUTION[axis];
+    const actual: Record<string, number> = {};
+    for (const it of items) {
+      const k = it[axis];
+      actual[k] = (actual[k] ?? 0) + 1;
+    }
+    for (const [k, v] of Object.entries(expected)) {
+      const got = actual[k] ?? 0;
+      if (got !== v) errors.push(`${axis}.${k} mismatch: expected ${v}, got ${got}`);
+    }
+    for (const k of Object.keys(actual)) {
+      if (!(k in expected)) errors.push(`${axis}.${k} unexpected (${actual[k]} item(s))`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+// 한 문항 실행 결과 — eval_runs.results jsonb에 그대로 박제(spec §5.1).
+export type EvalResultEntry = {
+  id: string;
+  question: string;
+  response_text: string;
+  citations: Array<{
+    source_id: string;
+    page: number | null;
+    section_path: string | null;
+    snippet: string;
+  }>;
+  scores: AxisScores;
+  weighted: number;
+  latency_ms: number;
+  tokens: { input: number | undefined; output: number | undefined };
+  expected_keywords_hit: string[];
+  expected_keywords_miss: string[];
+  finish_reason: string;
+  model: string;
+};
+
+export type EvalSummary = {
+  n: number;
+  weighted_avg: number;
+  axes: AxisScores; // 0/1 축은 평균이 0~1 실수가 됨 — 타입은 동일
+  by_category: Record<string, { n: number; weighted_avg: number }>;
+  by_difficulty: Record<string, { n: number; weighted_avg: number }>;
+  by_tax_type: Record<string, { n: number; weighted_avg: number }>;
+  failures: string[];
+  totals: {
+    latency_ms_p50: number;
+    latency_ms_p95: number;
+    input_tokens_sum: number;
+    output_tokens_sum: number;
+  };
+  weights: typeof WEIGHTS;
+};
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p));
+  return sorted[idx];
+}
+
+function summarize(
+  results: EvalResultEntry[],
+  items: GoldenItem[],
+): EvalSummary {
+  const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
+  const avg = (arr: number[]) => (arr.length ? sum(arr) / arr.length : 0);
+  const itemById = new Map(items.map((it) => [it.id, it]));
+
+  const groupBy = <K extends keyof GoldenItem>(field: K) => {
+    const groups: Record<string, number[]> = {};
+    for (const r of results) {
+      const it = itemById.get(r.id);
+      if (!it) continue;
+      const k = String(it[field]);
+      (groups[k] ??= []).push(r.weighted);
+    }
+    return Object.fromEntries(
+      Object.entries(groups).map(([k, vals]) => [
+        k,
+        { n: vals.length, weighted_avg: avg(vals) },
+      ]),
+    );
+  };
+
+  const latencies = results.map((r) => r.latency_ms);
+
+  return {
+    n: results.length,
+    weighted_avg: avg(results.map((r) => r.weighted)),
+    axes: {
+      keyword_recall: avg(results.map((r) => r.scores.keyword_recall)),
+      // 0/1 축의 평균은 실수지만 AxisScores 타입의 0|1 제약 때문에 단언이 필요.
+      // 채점 단계의 단위 점수는 정확히 0|1이므로 평균만 cast.
+      citation_present: avg(results.map((r) => r.scores.citation_present)) as 0 | 1,
+      citation_correct: avg(results.map((r) => r.scores.citation_correct)) as 0 | 1,
+      no_hallucination: avg(results.map((r) => r.scores.no_hallucination)) as 0 | 1,
+    },
+    by_category: groupBy("category"),
+    by_difficulty: groupBy("difficulty"),
+    by_tax_type: groupBy("tax_type"),
+    failures: results.filter((r) => r.weighted < 0.5).map((r) => r.id),
+    totals: {
+      latency_ms_p50: percentile(latencies, 0.5),
+      latency_ms_p95: percentile(latencies, 0.95),
+      input_tokens_sum: sum(results.map((r) => r.tokens.input ?? 0)),
+      output_tokens_sum: sum(results.map((r) => r.tokens.output ?? 0)),
+    },
+    weights: WEIGHTS,
+  };
+}
+
+// 한 항목을 ask로 실행해 결과 entry 생성. stream은 끝까지 drain해야 finish가 resolve.
+async function runOne(
+  ask: AskFn,
+  item: GoldenItem,
+  k: number,
+  model: string | undefined,
+): Promise<EvalResultEntry> {
+  const t0 = Date.now();
+  const { textStream, citations, finish } = await ask(item.question, { k, model });
+  // 본 단계는 partial token이 필요 없어 drain만. apps/web과 달리 SSE 미사용.
+  for await (const _ of textStream) {
+    void _;
+  }
+  const meta = await finish;
+  const t1 = Date.now();
+
+  const response = { text: meta.text, citations };
+  const axisScores = score(item, response);
+  const w = weighted(axisScores);
+  const { hit, miss } = partitionKeywords(item, response);
+
+  return {
+    id: item.id,
+    question: item.question,
+    response_text: meta.text,
+    citations: citations.map((c) => ({
+      source_id: c.source_id,
+      page: c.page,
+      section_path: c.section_path,
+      snippet: c.snippet,
+    })),
+    scores: axisScores,
+    weighted: w,
+    latency_ms: t1 - t0,
+    tokens: { input: meta.inputTokens, output: meta.outputTokens },
+    expected_keywords_hit: hit,
+    expected_keywords_miss: miss,
+    finish_reason: meta.finishReason,
+    model: meta.model,
+  };
+}
+
+export type RunnerOptions = {
+  k: number;
+  model: string | undefined;
+  embeddingModel: string;
+  promptVersion: string | null;
+  goldensetVersion: string;
+  limit?: number;
+  // 분당 호출 한도. Gemini Flash 무료 티어가 5 RPM이라 default 5로 두고, 호출 시작 사이
+  // 최소 60_000/rpm ms 간격을 보장. 0(또는 undefined)면 제한 없음.
+  rpm?: number;
+};
+
+/**
+ * 본 슬라이스의 메인 흐름 — eval_items upsert → 항목 직렬 실행 → summarize → saveRun.
+ * 직렬 실행은 토이 규모(30문항) + rate limit/디버깅 우위. 병렬화는 v2.
+ */
+export async function runEval(args: {
+  ask: AskFn;
+  gateway: Gateway;
+  set: GoldenSet;
+  options: RunnerOptions;
+  onItem?: (entry: EvalResultEntry, idx: number, total: number) => void;
+}): Promise<{
+  runId: string;
+  results: EvalResultEntry[];
+  summary: EvalSummary;
+}> {
+  const { ask, gateway, set, options, onItem } = args;
+
+  const evalItemRows: EvalItem[] = set.items.map((it) => ({
+    id: it.id,
+    question: it.question,
+    expectedKeywords: it.expected_keywords,
+    expectedCitationDoc: it.expected_citation_doc,
+    category: it.category,
+    difficulty: it.difficulty,
+    taxType: it.tax_type,
+  }));
+  await gateway.evalItems.upsert(evalItemRows);
+
+  const items = options.limit ? set.items.slice(0, options.limit) : set.items;
+  const results: EvalResultEntry[] = [];
+  // 호출 시작 사이의 최소 간격(ms). 0이면 제한 없음. 호출 자체가 더 오래 걸리면 추가 대기 없음.
+  const minIntervalMs = options.rpm && options.rpm > 0 ? 60_000 / options.rpm : 0;
+  let lastStart = 0;
+  for (let i = 0; i < items.length; i++) {
+    if (minIntervalMs > 0 && lastStart > 0) {
+      const wait = minIntervalMs - (Date.now() - lastStart);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    }
+    lastStart = Date.now();
+    const entry = await runOne(ask, items[i], options.k, options.model);
+    results.push(entry);
+    onItem?.(entry, i, items.length);
+  }
+
+  const summary = summarize(results, items);
+
+  // 실제 사용된 모델은 첫 결과에서 추출(default 라벨로 박제하면 비교 키가 흐려진다).
+  const usedModel = options.model ?? results[0]?.model ?? "(none)";
+
+  const saveArgs: SaveRunArgs = {
+    model: usedModel,
+    embeddingModel: options.embeddingModel,
+    retrievalK: options.k,
+    promptVersion: options.promptVersion,
+    goldensetVersion: options.goldensetVersion,
+    results,
+    summary,
+  };
+  const runId = await gateway.eval.saveRun(saveArgs);
+
+  return { runId, results, summary };
+}

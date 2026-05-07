@@ -12,7 +12,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "query": "tsx scripts/retrieve.ts",
-    "ask": "tsx scripts/ask.ts"
+    "ask": "tsx scripts/ask.ts",
+    "eval:run": "tsx scripts/eval-run.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.67",

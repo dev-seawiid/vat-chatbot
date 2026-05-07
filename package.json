@@ -19,6 +19,7 @@
     "db:studio": "pnpm --filter @vat/core db:studio",
     "core:query": "pnpm --filter @vat/core query",
     "core:ask": "pnpm --filter @vat/core ask",
+    "eval:run": "pnpm --filter @vat/core eval:run",
     "web:dev": "pnpm --filter @vat/web dev",
     "web:build": "pnpm --filter @vat/web build",
     "web:lint": "pnpm --filter @vat/web lint"
