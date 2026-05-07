@@ -56,6 +56,7 @@ export function MessageBubble({
 
   return (
     <article
+      aria-label={isUser ? "사용자 메시지" : "AI 답변"}
       className={cn(
         "group relative blur-in py-1 pl-5",
         isUser ? "border-l-2 border-yellow" : "border-l-2 border-white/10",

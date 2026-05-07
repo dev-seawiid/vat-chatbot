@@ -13,7 +13,7 @@ export function NewConversationButton({ onReset }: NewConversationButtonProps) {
     <button
       type="button"
       onClick={onReset}
-      className="group inline-flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-fg-soft transition-colors hover:text-fg"
+      className="group inline-flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.22em] text-fg-soft transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
       <span
         aria-hidden

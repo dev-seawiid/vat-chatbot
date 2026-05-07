@@ -89,7 +89,11 @@ export function ChatWindow() {
             aria-hidden
             className="block h-[8px] w-[8px] animate-pulse-yellow bg-yellow"
           />
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-soft">
+          <span
+            className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-soft"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             SESSION · <span className="text-fg">{sessionLabel}</span>
           </span>
         </div>
@@ -104,6 +108,7 @@ export function ChatWindow() {
         aria-atomic="false"
         aria-relevant="additions text"
         aria-label="대화 내용"
+        tabIndex={0}
       >
         {isEmpty ? (
           <EmptyState onSelectPrompt={setDraft} />

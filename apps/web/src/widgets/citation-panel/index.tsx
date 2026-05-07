@@ -85,7 +85,7 @@ export function CitationPanel({
 
                   <header className="flex items-start gap-4">
                     <span
-                      aria-hidden
+                      aria-label={`인용 ${n}`}
                       className={cn(
                         "flex h-8 w-8 shrink-0 items-center justify-center",
                         "font-mono text-[12px] font-semibold leading-none",

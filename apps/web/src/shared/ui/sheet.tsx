@@ -71,7 +71,7 @@ const SheetContent = React.forwardRef<
           "border border-white/10 bg-surface-1 text-fg-soft",
           "transition-[background-color,border-color,color] duration-200",
           "hover:border-yellow/40 hover:bg-yellow hover:text-bg",
-          "focus:outline-none focus-visible:ring-1 focus-visible:ring-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         )}
       >
         <X className="h-4 w-4" />

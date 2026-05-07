@@ -39,6 +39,9 @@ export function CitationChip({
       aria-label={`인용 ${n} 보기`}
       className={cn(
         "relative mx-[3px] inline-flex h-[18px] w-[18px] -translate-y-[1px] items-center justify-center align-baseline",
+        // hit area 확장 — WCAG 2.5.8 24×24px 최소 타겟. 시각 18px 유지하면서
+        // pseudo-element로 28×28px 클릭 가능 영역 확보.
+        "after:absolute after:inset-[-5px] after:content-['']",
         "font-mono text-[10px] font-semibold leading-none",
         "transition-all duration-200 ease-out",
         "focus-visible:outline-none",

@@ -16,6 +16,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-14 w-full max-w-[1200px] items-center justify-between gap-3 px-4 sm:h-16 sm:px-6">
         <Link
           href="/"
+          aria-label="홈으로 이동"
           className="group flex min-w-0 items-center gap-2.5 sm:gap-3"
         >
           <span

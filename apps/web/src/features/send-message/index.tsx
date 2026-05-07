@@ -198,9 +198,9 @@ export function ExamplePromptList({
   onSelect,
 }: ExamplePromptListProps) {
   return (
-    <div className="grid w-full gap-3 sm:grid-cols-2">
+    <ul role="list" className="grid w-full gap-3 sm:grid-cols-2">
       {prompts.map((p, i) => (
-        <div
+        <li
           key={p}
           className="stagger-enter"
           style={{ animationDelay: `${300 + i * 100}ms` }}
@@ -237,9 +237,9 @@ export function ExamplePromptList({
               </span>
             </button>
           </MagicCard>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
