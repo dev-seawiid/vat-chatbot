@@ -112,6 +112,23 @@ export function CitationPanel({
                   <p className="mt-4 whitespace-pre-wrap border-t border-white/10 pt-4 text-[14px] leading-[1.65] text-fg/80">
                     {c.snippet}
                   </p>
+
+                  {c.source_url && (
+                    <a
+                      href={c.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        "mt-4 inline-flex items-center gap-1.5",
+                        "font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted",
+                        "transition-colors duration-150 hover:text-yellow focus-visible:text-yellow focus-visible:outline-none",
+                      )}
+                      aria-label="원본 PDF 다운로드 (새 창)"
+                    >
+                      원본 PDF 다운로드
+                      <span aria-hidden>↗</span>
+                    </a>
+                  )}
                 </li>
               );
             })

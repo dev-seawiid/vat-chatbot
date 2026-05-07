@@ -12,8 +12,10 @@ export function toCitation(chunk: SearchResult): Citation {
   return {
     chunk_id: chunk.chunk_id,
     doc_id: chunk.doc_id,
+    source_id: chunk.source_id,
     doc_title: chunk.doc_title,
     doc_version: chunk.doc_version,
+    source_url: chunk.source_url,
     page: chunk.page,
     section_path: chunk.section_path,
     snippet:

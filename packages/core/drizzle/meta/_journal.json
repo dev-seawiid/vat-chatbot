@@ -15,6 +15,13 @@
       "when": 1777900255258,
       "tag": "0001_oval_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778135643809,
+      "tag": "0002_broken_dracula",
+      "breakpoints": true
     }
   ]
 }

@@ -27,6 +27,7 @@ def _to_db_row(
     embedding: list[float],
     doc_uuid: UUID,
     *,
+    source_id: str,
     kind: str,
     tax_type: str,
     doc_version: str,
@@ -38,6 +39,8 @@ def _to_db_row(
     - 디버깅·렌더링용(`section_ordinal`/`chunk_ordinal`/`token_count`/`anchor`)
     `doc_version`은 documents.version과 중복이지만 chunk 단위 컨텍스트 렌더링·필터에서
     join 없이 바로 보이게 하려는 의도(spec §3.1 표).
+    `source_id`는 sources.json의 자연키(예: `nts-vat-2025-2q-manual`) — 평가 채점에서
+    `expected_citation_doc`과 직접 비교하기 위한 휴먼 가독 키(2026-05-07 eval 슬라이스 §0.4 #1).
     section_path는 W1 청크가 단일 레벨 heading만 가지므로 그대로 매핑.
     """
     return {
@@ -48,6 +51,7 @@ def _to_db_row(
         "content_hash": chunk["content_hash"],
         "embedding": embedding,
         "metadata": {
+            "source_id": source_id,
             "kind": kind,
             "tax_type": tax_type,
             "doc_version": doc_version,
@@ -125,6 +129,7 @@ def main() -> int:
                         c,
                         by_hash[c["content_hash"]],
                         doc_uuid,
+                        source_id=sid,
                         kind=entry.get("kind", "pdf"),
                         tax_type=entry["tax_type"],
                         doc_version=entry["version"],

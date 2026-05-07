@@ -1,7 +1,13 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 
 import type { Db } from "./client";
-import { type Citation, conversations, messages } from "./schema";
+import {
+  type Citation,
+  conversations,
+  evalItems,
+  evalRuns,
+  messages,
+} from "./schema";
 
 // spec §2.1 인터페이스 — TS plane DB 진입점. 도메인별 namespace로 묶어
 // 소비자(`apps/web` route handler/CLI)가 drizzle 객체를 직접 import하지 않도록 통제한다.
@@ -22,8 +28,12 @@ export type SearchOptions = {
 export type SearchResult = {
   chunk_id: string;
   doc_id: string;
+  source_id: string;
   doc_title: string;
   doc_version: string | null;
+  // documents.source_url — sources.json의 url(예: NTS 다운로드 링크). UI 인용 패널에서
+  // "원본 PDF 다운로드" 앵커로 사용. 적재 시 nullable이므로 호출자도 분기 처리.
+  source_url: string | null;
   page: number | null;
   section_path: string | null;
   content: string;
@@ -42,6 +52,40 @@ export type SavePairArgs = {
   inputTokens: number | undefined;
   outputTokens: number | undefined;
   traceId: string | null;
+};
+
+// 2026-05-07 eval 슬라이스 §4 — golden.json 한 항목의 정답 형태. id는 슬러그(`vat-<cat>-<diff>-<n>`).
+export type EvalItem = {
+  id: string;
+  question: string;
+  expectedKeywords: string[];
+  expectedCitationDoc: string;
+  category: string;
+  difficulty: "easy" | "medium" | "hard";
+  taxType: string;
+};
+
+// eval_runs 1행 적재 args. results/summary 구조는 §5 spec, 본 gateway는 jsonb로 그대로 전달.
+export type SaveRunArgs = {
+  model: string;
+  embeddingModel: string;
+  retrievalK: number;
+  promptVersion: string | null;
+  goldensetVersion: string;
+  results: unknown;
+  summary: unknown;
+};
+
+export type EvalRunRow = {
+  id: string;
+  ranAt: Date;
+  model: string;
+  embeddingModel: string;
+  retrievalK: number;
+  promptVersion: string | null;
+  goldensetVersion: string;
+  results: unknown;
+  summary: unknown;
 };
 
 export type Gateway = ReturnType<typeof createGateway>;
@@ -67,8 +111,10 @@ export function createGateway(db: Db) {
         const rows = await db.execute<SearchResult>(sql`
           SELECT c.id::text                            AS chunk_id,
                  c.doc_id::text                        AS doc_id,
+                 c.metadata->>'source_id'              AS source_id,
                  d.title                               AS doc_title,
                  d.version                             AS doc_version,
+                 d.source_url                          AS source_url,
                  c.page,
                  c.section_path,
                  c.content,
@@ -81,6 +127,72 @@ export function createGateway(db: Db) {
           LIMIT ${k}
         `);
         return rows as unknown as SearchResult[];
+      },
+    },
+    evalItems: {
+      /**
+       * golden.json → DB 동기화. 슬러그 PK라 ON CONFLICT (id) DO UPDATE.
+       * 정답이 사라진 항목은 자동 삭제하지 않음 — 과거 eval_runs.results가 참조하므로
+       * 수동 삭제만 허용(2026-05-07 eval 슬라이스 §4.2).
+       */
+      async upsert(items: EvalItem[]): Promise<void> {
+        if (items.length === 0) return;
+        await db
+          .insert(evalItems)
+          .values(
+            items.map((it) => ({
+              id: it.id,
+              question: it.question,
+              expectedKeywords: it.expectedKeywords,
+              expectedCitationDoc: it.expectedCitationDoc,
+              category: it.category,
+              difficulty: it.difficulty,
+              taxType: it.taxType,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: evalItems.id,
+            set: {
+              question: sql`EXCLUDED.question`,
+              expectedKeywords: sql`EXCLUDED.expected_keywords`,
+              expectedCitationDoc: sql`EXCLUDED.expected_citation_doc`,
+              category: sql`EXCLUDED.category`,
+              difficulty: sql`EXCLUDED.difficulty`,
+              taxType: sql`EXCLUDED.tax_type`,
+              updatedAt: sql`now()`,
+            },
+          });
+      },
+    },
+    eval: {
+      /**
+       * 1회 실행 결과를 단일 jsonb 페어(results/summary)로 박제. ranAt은 DB default.
+       * 적재된 row id를 반환해 stdout/Langfuse trace 키로 다시 쓰일 수 있게 한다.
+       */
+      async saveRun(args: SaveRunArgs): Promise<string> {
+        const [row] = await db
+          .insert(evalRuns)
+          .values({
+            model: args.model,
+            embeddingModel: args.embeddingModel,
+            retrievalK: args.retrievalK,
+            promptVersion: args.promptVersion,
+            goldensetVersion: args.goldensetVersion,
+            results: args.results,
+            summary: args.summary,
+          })
+          .returning({ id: evalRuns.id });
+        return row.id;
+      },
+      /**
+       * 최근 실행 N개를 ranAt 내림차순으로 — admin 대시보드/CLI 비교용. 토이 단계는 단순 SELECT.
+       */
+      async listRuns(limit = 20): Promise<EvalRunRow[]> {
+        return db
+          .select()
+          .from(evalRuns)
+          .orderBy(desc(evalRuns.ranAt))
+          .limit(limit);
       },
     },
     messages: {
