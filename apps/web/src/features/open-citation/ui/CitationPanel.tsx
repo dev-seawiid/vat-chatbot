@@ -1,6 +1,7 @@
 "use client";
 
-import type { Citation } from "@/entities/citation/types";
+import type { Citation } from "@vat/core";
+
 import { cn } from "@/shared/lib/utils";
 import {
   Sheet,

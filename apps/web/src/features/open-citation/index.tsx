@@ -1,9 +1,9 @@
 "use client";
 
+import type { Citation } from "@vat/core";
 import { overlay } from "overlay-kit";
 
-import type { Citation } from "@/entities/citation/types";
-import { CitationPanel } from "@/widgets/citation-panel";
+import { CitationPanel } from "./ui/CitationPanel";
 
 type OpenCitationPanelArgs = {
   citations: Citation[];

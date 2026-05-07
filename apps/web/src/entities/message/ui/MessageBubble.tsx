@@ -1,8 +1,10 @@
 "use client";
 
-import type { Citation } from "@/entities/citation/types";
-import { CitationChip } from "@/entities/citation/ui/CitationChip";
+import type { Citation } from "@vat/core";
+
 import { cn } from "@/shared/lib/utils";
+
+import { CitationChip } from "./CitationChip";
 
 const CITE_REGEX = /\[(\d+)\]/g;
 

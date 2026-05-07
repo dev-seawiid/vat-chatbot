@@ -5,11 +5,14 @@ import { DefaultChatTransport } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import * as conversationStorage from "@/entities/conversation/lib/storage";
-import { CHAT_API } from "@/entities/message/api/endpoints";
-import { getCitations, getText } from "@/entities/message/lib/parts";
-import type { ChatUIMessage } from "@/entities/message/types";
-import { MessageBubble } from "@/entities/message/ui/MessageBubble";
+import { conversationStorage } from "@/entities/conversation";
+import {
+  CHAT_API,
+  type ChatUIMessage,
+  getCitations,
+  getText,
+  MessageBubble,
+} from "@/entities/message";
 import { NewConversationButton } from "@/features/new-conversation";
 import { openCitationPanel } from "@/features/open-citation";
 import { Composer, ExamplePromptList } from "@/features/send-message";

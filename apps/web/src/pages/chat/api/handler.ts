@@ -5,13 +5,8 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { after } from "next/server";
 import { z } from "zod";
 
-import { lastUserText } from "@/entities/message/lib/parts";
-import type { ChatUIMessage } from "@/entities/message/types";
+import { type ChatUIMessage, lastUserText } from "@/entities/message";
 import { langfuseSpanProcessor } from "@/shared/lib/observability/langfuse";
-
-// instrumentation.node.ts가 NodeSDK를 등록하므로 본 라우트는 반드시 node 런타임.
-// edge면 NodeSDK 비호환으로 spans drop.
-export const runtime = "nodejs";
 
 // 단일 user query 길이 상한 — 1회 LLM 호출 input 토큰 비용 cap.
 const MAX_QUERY_LENGTH = 2000;
