@@ -336,33 +336,57 @@ client SSE ← Vercel Function
   ├─ streamText() 시작       [first token ~600ms]
   ├─ token 스트림 forward
   ├─ tool call 발생 시 inline 처리 후 재개
-  └─ done → messages 저장 + audit + Langfuse trace flush
+  ├─ done → messages 저장 (trace_id 포함) + audit
+  └─ after(forceFlush) → Langfuse span export (응답 종료 후)
 ```
+
+`forceFlush`는 Next.js `after()`로 응답 종료 뒤에 비동기 실행 — 서버리스에서 spans 유실 방지(§4.1).
 
 ---
 
 ## 4. LLMOps & 평가
 
 ### 4.1 Langfuse 셋업
-- 호스팅: Docker Compose self-host (로컬), 데모 시 Langfuse Cloud 전환
-- 통합: Vercel AI SDK + `@langfuse/sdk`
-- 환경 분리: `tags: ["env:dev"]` / `["env:prod"]` / `["eval-run"]`
+
+**스택** — Langfuse JS SDK v5(OTEL 기반)로 직접 통합. Vercel AI SDK가 OTEL spans를 자동으로 emit하면 `LangfuseSpanProcessor`가 그걸 받아 Langfuse로 export하는 구조.
+
+```
+apps/web 의존성:
+  @langfuse/tracing       — propagateAttributes / setActiveTraceIO 등 헬퍼
+  @langfuse/otel          — LangfuseSpanProcessor (Node ≥20)
+  @opentelemetry/sdk-node — NodeSDK 부트스트랩
+  @opentelemetry/api      — getActiveSpan()으로 trace_id 캡처
+```
+
+레거시 `langfuse`(v3 단일 패키지)·`langfuse-vercel`은 비채택 — 공식 v5 문서가 OTEL 라우트만 안내.
+
+**호스팅** — 로컬은 docker-compose self-host, 배포는 Langfuse Cloud(free). 패키지·코드 동일, `LANGFUSE_BASE_URL`만 차이.
+
+**부트스트랩** — `apps/web/src/instrumentation.ts`(Next.js 컨벤션)의 `register()`에서 `NEXT_RUNTIME === 'nodejs'` 분기로만 NodeSDK 등록. Edge runtime은 NodeSDK 비호환이므로 `/api/chat` 라우트는 `export const runtime = 'nodejs'` 강제.
+
+**호출 측 통합** — Vercel AI SDK `streamText`에 `experimental_telemetry: { isEnabled: true, functionId: 'rag.ask' }` 한 줄. AI SDK가 generation/tool-call spans을 자동 생성. 라우트 핸들러는 `propagateAttributes({ sessionId: conversationId, traceName: 'chat-message' })`로 호출 전체를 감싸 trace 메타를 전파한다.
+
+**서버리스 flush** — Next.js `after(() => langfuseSpanProcessor.forceFlush())`로 응답 종료 후 명시적 export. Vercel function 종료 시 spans 유실 방지(필수).
+
+**환경 분리** — `release` 또는 `metadata.env`로 `dev`/`prod`/`eval-run` 구분. 별도 프로젝트 키 분리는 v2.
 
 ### 4.2 Trace 스키마
 
 ```
-trace: chat-{conversation_id}-{message_id}
-├─ span: retrieve
+trace (root: propagateAttributes — traceName='chat-message', sessionId=conversation_id)
+├─ span: retrieve  ← 수동 startActiveSpan (rag/retrieve.ts)
 │    input: { query, filter }
 │    output: { chunk_ids, similarities }
-├─ generation: claude-sonnet-4-6
+├─ generation: ai.streamText  ← AI SDK 자동 span (functionId='rag.ask')
 │    input: { system, context, query }
 │    output: { text, citations }
 │    usage: { input_tokens, output_tokens, cost_usd }
-├─ span: tool.calc_vat (옵션)
-└─ score (피드백 도착 시 비동기)
-     name: "user-thumbs", value: 1 | -1
+├─ span: ai.toolCall.calc_vat (옵션)  ← AI SDK 자동
+└─ score (피드백 도착 시 별도 호출 — @langfuse/client REST)
+     name: "user-thumbs", value: 1 | -1, trace_id=messages.trace_id
 ```
+
+`messages.trace_id`는 OTEL trace_id(32-char hex)를 그대로 박제. 피드백 score 송출 시 이 값을 키로 trace에 score를 attach.
 
 ### 4.3 핵심 메트릭
 - 응답 latency P50/P95
@@ -446,7 +470,7 @@ LLM-as-a-judge는 v2 — 토이 단계엔 결정적 채점이 비용/재현성 �
 | Audit 무결성 | `REVOKE UPDATE/DELETE FROM app_user` (append-only) |
 | Rate limit | 익명 공개 노출 보호 — IP/cookie 기반(W4) |
 | PII | 사용자 입력에서 회사명·주민번호 자동 마스킹(정규식) |
-| Secret | `lib/env.ts`에서 `zod` 스키마로 검증 |
+| Secret | `lib/env.ts`에서 `zod` 스키마로 검증. `LANGFUSE_*`는 instrumentation 레이어에서 process.env 직접 소비(미설정 시 spans drop, 동작 무영향) |
 
 ### 5.3 인프라
 

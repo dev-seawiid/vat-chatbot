@@ -1,3 +1,5 @@
+import type { TelemetrySettings } from "ai";
+
 import { createDb } from "./db/client";
 import { createGateway, type Gateway } from "./db/gateway";
 import { type AskFn, createAsk } from "./rag/generate";
@@ -13,6 +15,9 @@ export type CoreConfig = {
   databaseUrl: string;
   voyageApiKey: string;
   googleApiKey: string;
+  /** AI SDK telemetry — OTEL SpanProcessor를 부팅한 plane만 활성화. 미전달 시 spans 미발생.
+   *  apps/web은 `{ isEnabled: true, functionId: 'rag.ask' }` 주입, CLI는 기본 미주입. */
+  telemetry?: TelemetrySettings;
 };
 
 export type Core = {
@@ -28,6 +33,10 @@ export function createCore(config: CoreConfig): Core {
   const gateway = createGateway(db);
   const embed = createEmbed(config.voyageApiKey);
   const retrieve = createRetrieve({ embed, gateway });
-  const ask = createAsk({ retrieve, googleApiKey: config.googleApiKey });
+  const ask = createAsk({
+    retrieve,
+    googleApiKey: config.googleApiKey,
+    telemetry: config.telemetry,
+  });
   return { ask, retrieve, gateway, close };
 }

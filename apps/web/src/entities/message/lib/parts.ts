@@ -17,8 +17,39 @@ export function getCitations(message: ChatUIMessage): Citation[] {
   return out;
 }
 
-export function lastUserText(messages: ChatUIMessage[]): string {
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return "";
-  return getText(last);
+// 서버 boundary용 — 외부 입력(JSON.parse 결과)을 ChatUIMessage[]로 강제 캐스팅하지 않고
+// type guard로 안전하게 좁힌 뒤 마지막 user 텍스트만 추출. 검증 실패 시 빈 문자열을 반환해
+// 호출자가 "empty query" 분기로 처리하도록 한다.
+export function lastUserText(messages: readonly unknown[]): string {
+  const last = messages.at(-1);
+  if (!isUserMessage(last)) return "";
+  let out = "";
+  for (const part of last.parts) {
+    if (isTextPart(part)) out += part.text;
+  }
+  return out;
+}
+
+function isUserMessage(
+  value: unknown,
+): value is { role: "user"; parts: readonly unknown[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "role" in value &&
+    value.role === "user" &&
+    "parts" in value &&
+    Array.isArray(value.parts)
+  );
+}
+
+function isTextPart(value: unknown): value is { type: "text"; text: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "text" &&
+    "text" in value &&
+    typeof value.text === "string"
+  );
 }

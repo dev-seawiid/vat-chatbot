@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { stepCountIs, streamText } from "ai";
+import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
 import type { SearchResult } from "../db/gateway";
 import type { Citation } from "../db/schema";
@@ -44,9 +44,13 @@ export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
 export function createAsk({
   retrieve,
   googleApiKey,
+  telemetry,
 }: {
   retrieve: RetrieveFn;
   googleApiKey: string;
+  /** AI SDK telemetry settings — undefined면 spans 미발생. 켤지 여부와 functionId는 composition
+   *  root가 결정한다(라이브러리는 OTEL 부팅 상태를 모르므로 enable 결정권 없음). */
+  telemetry?: TelemetrySettings;
 }): AskFn {
   // provider 인스턴스를 명시 주입 — @ai-sdk/google의 process.env 자동 lookup에 의존하지 않는다.
   const provider = createGoogleGenerativeAI({ apiKey: googleApiKey });
@@ -62,6 +66,7 @@ export function createAsk({
       prompt: query,
       tools,
       stopWhen: stepCountIs(5),
+      experimental_telemetry: telemetry,
     });
 
     const finish = (async () => {
