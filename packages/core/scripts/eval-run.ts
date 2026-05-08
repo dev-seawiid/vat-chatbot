@@ -14,37 +14,27 @@ import { PROMPT_VERSION } from "../src/rag/prompt";
 
 // 2026-05-07 eval 슬라이스 §7 — `pnpm eval:run` CLI 진입.
 // 사용:
-//   pnpm eval:run                 # 30문항 전체 (default rpm=5, ≈ 6분)
+//   pnpm eval:run                 # 30문항 전체
 //   pnpm eval:run --lint-only     # 분배·슬러그·source_id 정합성만 확인 후 종료
 //   pnpm eval:run --limit=5       # 처음 5문항만(스모크)
-//   pnpm eval:run --rpm=0         # rate-limit 없이(유료 키 또는 다른 모델일 때)
-//   pnpm eval:run --k=6 --model=gemini-2.5-pro
-
-// Gemini 2.5 Flash 무료 티어 한도 = 5 RPM. default를 그 값으로 두면 무료 키로도 안전 통과.
-const DEFAULT_RPM = 5;
+//   pnpm eval:run --k=6
 
 type Args = {
   lintOnly: boolean;
   limit: number | undefined;
   k: number;
-  model: string | undefined;
-  rpm: number;
 };
 
 function parseArgs(argv: string[]): Args {
   let lintOnly = false;
   let limit: number | undefined;
   let k = 8;
-  let model: string | undefined;
-  let rpm = DEFAULT_RPM;
   for (const a of argv) {
     if (a === "--lint-only") lintOnly = true;
     else if (a.startsWith("--limit=")) limit = parseInt(a.slice("--limit=".length), 10);
     else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
-    else if (a.startsWith("--model=")) model = a.slice("--model=".length);
-    else if (a.startsWith("--rpm=")) rpm = parseInt(a.slice("--rpm=".length), 10);
   }
-  return { lintOnly, limit, k, model, rpm };
+  return { lintOnly, limit, k };
 }
 
 // __dirname 대용 — packages/core/scripts/ 기준으로 monorepo root 도출.
@@ -87,16 +77,13 @@ async function main(): Promise<void> {
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
     voyageApiKey: env.VOYAGE_API_KEY,
-    googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
   });
 
   const startedAt = Date.now();
   try {
     const total = args.limit ?? set.items.length;
-    const rpmLabel = args.rpm > 0 ? `${args.rpm}/min` : "unlimited";
-    console.log(
-      `\nrunning ${total} item(s)  k=${args.k}  model=${args.model ?? "(default)"}  rpm=${rpmLabel}\n`,
-    );
+    console.log(`\nrunning ${total} item(s)  k=${args.k}\n`);
 
     const { runId, summary } = await runEval({
       ask: core.ask,
@@ -104,13 +91,11 @@ async function main(): Promise<void> {
       set,
       options: {
         k: args.k,
-        model: args.model,
         // Voyage 임베딩 라벨 — voyage.ts와 동기. 변경 시 한곳 더 만지지 않도록 v2에서 상수화.
         embeddingModel: "voyage-3",
         promptVersion: PROMPT_VERSION,
         goldensetVersion: set.version,
         limit: args.limit,
-        rpm: args.rpm,
       },
       onItem: (entry, idx, n) => {
         const sym =

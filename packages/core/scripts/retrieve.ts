@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
     voyageApiKey: env.VOYAGE_API_KEY,
-    googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
   });
 
   try {

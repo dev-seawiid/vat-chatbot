@@ -5,33 +5,30 @@ import { createCore, parseEnv } from "../src";
 // 검증 CLI — apps/web 진입 전에 retrieve+generate end-to-end를 눈으로 확인하는 thin entrypoint.
 // 사용:
 //   pnpm core:ask "간이과세자 신고는 어떻게 해야 하나요?"
-//   pnpm core:ask "..." --tax_type=vat-simplified --k=6 --model=gemini-2.5-pro
+//   pnpm core:ask "..." --tax_type=vat-simplified --k=6
 
 type Args = {
   query: string;
   taxType?: string;
   k: number;
-  model?: string;
 };
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   let taxType: string | undefined;
   let k = 8;
-  let model: string | undefined;
   for (const a of argv) {
     if (a.startsWith("--tax_type=")) taxType = a.slice("--tax_type=".length);
     else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
-    else if (a.startsWith("--model=")) model = a.slice("--model=".length);
     else positional.push(a);
   }
   if (positional.length === 0) {
     console.error(
-      'Usage: pnpm core:ask "<question>" [--tax_type=<value>] [--k=<n>] [--model=<id>]',
+      'Usage: pnpm core:ask "<question>" [--tax_type=<value>] [--k=<n>]',
     );
     process.exit(1);
   }
-  return { query: positional.join(" "), taxType, k, model };
+  return { query: positional.join(" "), taxType, k };
 }
 
 async function main(): Promise<void> {
@@ -39,22 +36,20 @@ async function main(): Promise<void> {
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
     voyageApiKey: env.VOYAGE_API_KEY,
-    googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
   });
 
   try {
-    const { query, taxType, k, model } = parseArgs(process.argv.slice(2));
+    const { query, taxType, k } = parseArgs(process.argv.slice(2));
     const filter = taxType ? { tax_type: taxType } : undefined;
 
     console.log(`\nQuery   : ${query}`);
     console.log(`k       : ${k}`);
-    console.log(`model   : ${model ?? "(default)"}`);
     console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
 
     const { textStream, citations, finish } = await core.ask(query, {
       k,
       filter,
-      model,
     });
 
     console.log("--- answer ---");
@@ -63,7 +58,7 @@ async function main(): Promise<void> {
 
     const meta = await finish;
     console.log(
-      `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}\n`,
+      `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}  model=${meta.model}\n`,
     );
 
     console.log("--- citations ---");

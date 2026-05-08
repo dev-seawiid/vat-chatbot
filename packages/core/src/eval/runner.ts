@@ -72,9 +72,7 @@ export function lintGoldenSet(
     if (seen.has(it.id)) errors.push(`duplicate id: ${it.id}`);
     seen.add(it.id);
     if (!validSourceIds.has(it.expected_citation_doc)) {
-      errors.push(
-        `unknown source_id: ${it.id} → ${it.expected_citation_doc}`,
-      );
+      errors.push(`unknown source_id: ${it.id} → ${it.expected_citation_doc}`);
     }
     if (it.expected_keywords.length === 0) {
       errors.push(`empty keywords: ${it.id}`);
@@ -90,10 +88,12 @@ export function lintGoldenSet(
     }
     for (const [k, v] of Object.entries(expected)) {
       const got = actual[k] ?? 0;
-      if (got !== v) errors.push(`${axis}.${k} mismatch: expected ${v}, got ${got}`);
+      if (got !== v)
+        errors.push(`${axis}.${k} mismatch: expected ${v}, got ${got}`);
     }
     for (const k of Object.keys(actual)) {
-      if (!(k in expected)) errors.push(`${axis}.${k} unexpected (${actual[k]} item(s))`);
+      if (!(k in expected))
+        errors.push(`${axis}.${k} unexpected (${actual[k]} item(s))`);
     }
   }
 
@@ -178,9 +178,15 @@ function summarize(
       keyword_recall: avg(results.map((r) => r.scores.keyword_recall)),
       // 0/1 축의 평균은 실수지만 AxisScores 타입의 0|1 제약 때문에 단언이 필요.
       // 채점 단계의 단위 점수는 정확히 0|1이므로 평균만 cast.
-      citation_present: avg(results.map((r) => r.scores.citation_present)) as 0 | 1,
-      citation_correct: avg(results.map((r) => r.scores.citation_correct)) as 0 | 1,
-      no_hallucination: avg(results.map((r) => r.scores.no_hallucination)) as 0 | 1,
+      citation_present: avg(results.map((r) => r.scores.citation_present)) as
+        | 0
+        | 1,
+      citation_correct: avg(results.map((r) => r.scores.citation_correct)) as
+        | 0
+        | 1,
+      no_hallucination: avg(results.map((r) => r.scores.no_hallucination)) as
+        | 0
+        | 1,
     },
     by_category: groupBy("category"),
     by_difficulty: groupBy("difficulty"),
@@ -201,10 +207,9 @@ async function runOne(
   ask: AskFn,
   item: GoldenItem,
   k: number,
-  model: string | undefined,
 ): Promise<EvalResultEntry> {
   const t0 = Date.now();
-  const { textStream, citations, finish } = await ask(item.question, { k, model });
+  const { textStream, citations, finish } = await ask(item.question, { k });
   // 본 단계는 partial token이 필요 없어 drain만. apps/web과 달리 SSE 미사용.
   for await (const _ of textStream) {
     void _;
@@ -240,14 +245,10 @@ async function runOne(
 
 export type RunnerOptions = {
   k: number;
-  model: string | undefined;
   embeddingModel: string;
   promptVersion: string | null;
   goldensetVersion: string;
   limit?: number;
-  // 분당 호출 한도. Gemini Flash 무료 티어가 5 RPM이라 default 5로 두고, 호출 시작 사이
-  // 최소 60_000/rpm ms 간격을 보장. 0(또는 undefined)면 제한 없음.
-  rpm?: number;
 };
 
 /**
@@ -280,24 +281,16 @@ export async function runEval(args: {
 
   const items = options.limit ? set.items.slice(0, options.limit) : set.items;
   const results: EvalResultEntry[] = [];
-  // 호출 시작 사이의 최소 간격(ms). 0이면 제한 없음. 호출 자체가 더 오래 걸리면 추가 대기 없음.
-  const minIntervalMs = options.rpm && options.rpm > 0 ? 60_000 / options.rpm : 0;
-  let lastStart = 0;
   for (let i = 0; i < items.length; i++) {
-    if (minIntervalMs > 0 && lastStart > 0) {
-      const wait = minIntervalMs - (Date.now() - lastStart);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    }
-    lastStart = Date.now();
-    const entry = await runOne(ask, items[i], options.k, options.model);
+    const entry = await runOne(ask, items[i], options.k);
     results.push(entry);
     onItem?.(entry, i, items.length);
   }
 
   const summary = summarize(results, items);
 
-  // 실제 사용된 모델은 첫 결과에서 추출(default 라벨로 박제하면 비교 키가 흐려진다).
-  const usedModel = options.model ?? results[0]?.model ?? "(none)";
+  // 실제 호출에서 사용된 모델 — generate.ts가 ResolvedModel.modelId로 박제한 값.
+  const usedModel = results[0]?.model ?? "(none)";
 
   const saveArgs: SaveRunArgs = {
     model: usedModel,

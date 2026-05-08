@@ -1,21 +1,14 @@
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
 import type { SearchResult } from "../db/gateway";
 import type { Citation } from "../db/schema";
 import { toCitations } from "./citation";
+import type { GenerationModel } from "./generation-model";
 import { buildSystemMessage } from "./prompt";
 import type { RetrieveFn, RetrieveOptions } from "./retrieve";
 import { tools } from "./tools";
 
-// spec §3.3는 claude-sonnet-4-6을 default로 명시하지만, 토이 학습 단계에서는 무료 티어인
-// Gemini 2.5 Flash로 운영해 비용을 0으로 둔다(spec deviation, §3.3 하단 메모 참조).
-// 더 큰 모델이 필요하면 호출자가 opts.model로 "gemini-2.5-pro" 등을 명시.
-const DEFAULT_MODEL = "gemini-2.5-flash";
-
-export type AskOptions = RetrieveOptions & {
-  model?: string;
-};
+export type AskOptions = RetrieveOptions;
 
 export type AskResult = {
   textStream: AsyncIterable<string>;
@@ -43,25 +36,23 @@ export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
  */
 export function createAsk({
   retrieve,
-  googleApiKey,
+  generationModel,
   telemetry,
 }: {
   retrieve: RetrieveFn;
-  googleApiKey: string;
+  generationModel: GenerationModel;
   /** AI SDK telemetry settings — undefined면 spans 미발생. 켤지 여부와 functionId는 composition
    *  root가 결정한다(라이브러리는 OTEL 부팅 상태를 모르므로 enable 결정권 없음). */
   telemetry?: TelemetrySettings;
 }): AskFn {
-  // provider 인스턴스를 명시 주입 — @ai-sdk/google의 process.env 자동 lookup에 의존하지 않는다.
-  const provider = createGoogleGenerativeAI({ apiKey: googleApiKey });
+  const { model, modelId } = generationModel;
 
   return async (query, opts = {}) => {
     const chunks = await retrieve(query, { k: opts.k, filter: opts.filter });
     const citations = toCitations(chunks);
 
-    const modelId = opts.model ?? DEFAULT_MODEL;
     const result = streamText({
-      model: provider(modelId),
+      model,
       system: buildSystemMessage(chunks),
       prompt: query,
       tools,

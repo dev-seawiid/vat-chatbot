@@ -67,7 +67,7 @@ DB 스키마 변경은 없음(`messages`는 이미 `conversationId`로 누적 ap
 ### 1.1 구성 요소
 1. **Ingestion 파이프라인** (`services/ingest-py`, Python + uv) — `data/sources.json`의 항목을 kind(`pdf`/`html`/`law`) 어댑터로 분기 처리: fetch → 텍스트/구조 추출 → 청크 → 임베딩 → upsert + audit. 로컬은 `pnpm ingest:all` (uv를 위임 호출), CI는 GHA python job(W4).
 2. **Retrieval** — 질문 임베딩 → pgvector cosine top-k=8
-3. **Generation** — Claude(`claude-sonnet-4-6`) + Vercel AI SDK `streamText`, 인용 강제 + tool 2개
+3. **Generation** — Vercel AI SDK `streamText` + tool 2개 + 인용 강제. 구체 provider/모델 ID는 spec에 박지 않고 `packages/core/src/rag/generation-model.ts`의 `GENERATION_MODEL_ID` 상수에서 단일 결정(§3.3)
 4. **HITL UI** — 인용 칩, 👍/👎/코멘트, 답변 이력
 5. **LLMOps** — Langfuse trace + 사용자 score + 골든셋 자동 평가
 
@@ -293,11 +293,14 @@ retrieved context는 system 영역에 격리한다. 사용자 입력이 `</conte
 구분자를 포함해도 user role과 분리되어 모델이 system 지시로 오인하지 않는다.
 
 **모델/호출**
-- `claude-sonnet-4-6` 기본, 어려운 케이스만 `claude-opus-4-7` toggle
+- 생성 모델 어댑터는 `packages/core/src/rag/generation-model.ts` 한 파일에 캡슐화
+  (`createGenerationModel` → `GenerationModel`). 임베딩 모델(`rag/voyage.ts`)과 이름·파일을
+  분리해 RAG의 두 모델 역할이 섞이지 않게 한다. generate.ts는 `GenerationModel`만 받고
+  provider/SDK를 모른다 — 교체 시 본 파일만 손대면 끝(db/client+gateway 분리와 같은 결).
+- 모델은 서버가 단일 결정한다(클라이언트/CLI 오버라이드 X). 구체 모델 ID는 자주 바뀌므로
+  spec에 박지 않고 `generation-model.ts`의 `GENERATION_MODEL_ID` 상수 한 곳에만 둔다.
 - Vercel AI SDK `streamText` + `tools`
-- prompt caching: 시스템 프롬프트 + tool 정의에 `cache_control: ephemeral`
-- 토이 학습 단계 deviation: 비용 0 운영을 위해 `gemini-2.5-flash`(Google AI Studio 무료 티어)
-  로 갈음. AI SDK 추상으로 호출 코드 동일, prompt caching은 anthropic 전용이라 미적용.
+- prompt caching은 provider별 지원 여부 상이 — provider 결정 시점에 같이 검토.
 
 **Tool calling**
 | 도구 | 역할 |
@@ -321,7 +324,7 @@ UI에서 `[1]` 클릭 시 모달.
 
 | 케이스 | 처리 |
 |---|---|
-| Voyage / Claude 호출 실패 | 1회 retry(지수 백오프), 실패 시 명시적 에러 + Langfuse error span |
+| Voyage / 생성 모델 호출 실패 | 1회 retry(지수 백오프), 실패 시 명시적 에러 + Langfuse error span |
 | context 비어있음 (k=0) | LLM 호출 전 단계컷 → "관련 자료를 찾지 못했습니다" |
 | 인용 누락 응답 | 응답 검사 후 재요청 1회 |
 | tool 호출 실패 | tool result에 `{error}` 전달, 모델이 사용자에게 안내 |
@@ -455,10 +458,10 @@ LLM-as-a-judge는 v2 — 토이 단계엔 결정적 채점이 비용/재현성 �
 
 | 요소 | 동작 | 위치 |
 |---|---|---|
-| 인용 칩 `[n]` | 클릭 → 원문 chunk + 페이지 모달 | `components/chat/CitationChip.tsx` |
-| 👍/👎 + 코멘트 | `/api/feedback` POST → DB + Langfuse score | `components/chat/FeedbackBar.tsx` |
-| 답변 이력 페이지 | 과거 메시지 + 인용 + 피드백 통합 뷰 | `app/history/page.tsx` |
-| Admin 평가 대시보드 | `eval_runs` 시각화 | `app/admin/evals/page.tsx` |
+| 인용 칩 `[n]` | 클릭 → 원문 chunk + 페이지 모달 | `src/entities/message/ui/CitationChip.tsx` |
+| 👍/👎 + 코멘트 | `/api/feedback` POST → DB + Langfuse score | `src/features/submit-feedback/ui/FeedbackBar.tsx` (W4) |
+| 답변 이력 페이지 | 과거 메시지 + 인용 + 피드백 통합 뷰 | `src/pages/history/` + `app/history/page.tsx` re-export (W4) |
+| Admin 평가 대시보드 | `eval_runs` 시각화 | `src/pages/eval-dashboard/` + `app/admin/evals/page.tsx` re-export (W4) |
 
 ### 5.2 보안/감사
 
@@ -527,7 +530,7 @@ ingest 실행
 - **apps/web** — Next.js 16 (App Router) / TypeScript / Vercel AI SDK
 - **packages/core** — Drizzle ORM (스키마 단일 소스) / postgres.js / zod
 - **services/ingest-py** — Python 3.12 / uv / psycopg + pgvector / pdfplumber / trafilatura · selectolax / httpx / pydantic + pydantic-settings / voyageai
-- **Infra** — Neon Postgres + pgvector / Anthropic Claude (Sonnet 4.6) + Voyage-3 / Langfuse / Inngest cron(W3+) / GitHub Actions / Docker Compose
+- **Infra** — Neon Postgres + pgvector / OpenAI + Voyage-3 / Langfuse / Inngest cron(W3+) / GitHub Actions / Docker Compose
 
 ---
 
@@ -546,7 +549,7 @@ ingest 실행
 | 비동기/이벤트 | Inngest cron (`eval.golden.weekly`, W3) — ingest는 의도적으로 Python CLI로 단순화 |
 | 감사 로그 / observability | append-only `audit_log` + `app_user` REVOKE + Langfuse trace |
 | 컨테이너 / CI/CD | docker-compose + GitHub Actions (Node + Python 두 단계) |
-| LLM 애플리케이션 | Anthropic Claude + Vercel AI SDK + tool calling |
+| LLM 애플리케이션 | OpenAI + Vercel AI SDK + tool calling |
 | Vector retrieval | pgvector + Voyage-3 임베딩 (양 plane에서 호출) |
 | Evaluation / LLMOps | 골든셋 30문항 + 자동 채점 + GHA smoke gate + Langfuse |
 | 프롬프트 자산화 | `prompts/` 디렉토리 + version 필드 + eval 비교 |
