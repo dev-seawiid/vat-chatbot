@@ -11,11 +11,13 @@ import {
   type ChatUIMessage,
   getCitations,
   getText,
+  getTraceId,
   MessageBubble,
 } from "@/entities/message";
 import { NewConversationButton } from "@/features/new-conversation";
 import { openCitationPanel } from "@/features/open-citation";
 import { Composer, ExamplePromptList } from "@/features/send-message";
+import { FeedbackBar } from "@/features/submit-feedback";
 import { AuroraText } from "@/shared/ui/aurora-text";
 import { TextAnimate } from "@/shared/ui/text-animate";
 
@@ -128,17 +130,27 @@ export function ChatWindow() {
                 const isLast = m.id === lastMessageId;
                 const messageStreaming =
                   isStreaming && isLast && m.role === "assistant";
+                const traceId =
+                  m.role === "assistant" ? getTraceId(m) : null;
+                const showFeedback =
+                  m.role === "assistant" && !messageStreaming && !!traceId;
                 return (
-                  <MessageBubble
-                    key={m.id}
-                    role={m.role}
-                    text={text}
-                    citations={citations}
-                    isStreaming={messageStreaming}
-                    onCiteClick={(n) =>
-                      openCitationPanel({ citations, selected: n })
-                    }
-                  />
+                  <div key={m.id}>
+                    <MessageBubble
+                      role={m.role}
+                      text={text}
+                      citations={citations}
+                      isStreaming={messageStreaming}
+                      onCiteClick={(n) =>
+                        openCitationPanel({ citations, selected: n })
+                      }
+                    />
+                    {showFeedback && (
+                      <div className="pl-5">
+                        <FeedbackBar traceId={traceId} />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
           </div>

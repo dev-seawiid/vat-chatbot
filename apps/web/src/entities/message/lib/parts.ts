@@ -18,6 +18,13 @@ export function getCitations(message: ChatUIMessage): Citation[] {
   return out;
 }
 
+export function getTraceId(message: ChatUIMessage): string | null {
+  for (const part of message.parts) {
+    if (part.type === "data-trace") return part.data.id;
+  }
+  return null;
+}
+
 // 서버 boundary용 — 외부 입력(JSON.parse 결과)을 ChatUIMessage[]로 강제 캐스팅하지 않고
 // type guard로 안전하게 좁힌 뒤 마지막 user 텍스트만 추출. 검증 실패 시 빈 문자열을 반환해
 // 호출자가 "empty query" 분기로 처리하도록 한다.

@@ -19,10 +19,10 @@
 - 한 번 실행 = 30문항 전체 → `eval_runs` 1행 INSERT
 
 ### 0.3 비범위
-- **Inngest cron** — 마스터 spec §4.6 weekly run은 별도 슬라이스
-- **GHA `eval:smoke` (5문항 게이트)** — W4 CI 통합 슬라이스
-- **Admin 대시보드 `/admin/evals`** — 마스터 spec §5.1, 별도 슬라이스
-- **Langfuse score 송출** — W3 trace 슬라이스가 닫은 뒤 합류
+- **Inngest cron `eval.golden.weekly`** — 마스터 spec §0.4 비범위(LLM 호출 자동화 금지). 토이 스케일에서 비용 통제 차원 제외, v2도 아닌 영구 범위 외
+- **GHA `eval:smoke` (5문항 머지 게이트)** — 동일 사유로 §0.4 비범위
+- **Admin 대시보드 `/admin/evals`** — §0.4에서 통째 제거. `eval_runs`는 SQL/Drizzle Studio로 직접 조회
+- **사용자 feedback score → Langfuse** — eval 슬라이스 외부, W3 마무리 별도 슬라이스(👍/👎 → Langfuse score 송출만, DB 미저장)
 - **LLM-as-a-judge** — 마스터 spec §4.5에서 v2로 명시
 - **재랭커 비교, 멀티 모델 cross-verification** — 마스터 spec §1.2 비범위 그대로
 
@@ -392,4 +392,6 @@ export type Citation = {
 | §2 eval_items / eval_runs 테이블 | §4 |
 | §2.1 `gateway.eval.{saveRun, listRuns}` | §7.4 |
 
-본 슬라이스가 닫지 않는 §4 항목(Inngest cron, GHA smoke, Langfuse score, admin 대시보드)은 §0.3 비범위로 명시.
+본 슬라이스가 닫지 않는 §4 항목 정리:
+- Inngest cron, GHA `eval:smoke`, admin 대시보드 → 마스터 spec §0.4에서 **영구 범위 외**(LLM 자동화 금지·관리 비용)
+- Langfuse user score(👍/👎) → W3 마무리 별도 슬라이스(eval과 무관, 채팅 plane)

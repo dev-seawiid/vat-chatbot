@@ -110,6 +110,11 @@ async function streamChatResponse({
 
   const stream = createUIMessageStream<ChatUIMessage>({
     execute: async ({ writer }) => {
+      // traceId가 있을 때만 송출 — 텔레메트리 미부팅 환경에선 part 자체 없음(클라 측
+      // FeedbackBar는 traceId 부재 시 미렌더하여 의미 없는 클릭을 차단).
+      if (traceId) {
+        writer.write({ type: "data-trace", data: { id: traceId } });
+      }
       writer.write({ type: "data-citations", data: citations });
 
       const textId = crypto.randomUUID();
