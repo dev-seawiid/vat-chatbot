@@ -1,16 +1,13 @@
 import "dotenv/config";
 
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { createCore, parseEnv } from "../src";
-import {
-  type GoldenSet,
-  lintGoldenSet,
-  runEval,
-} from "../src/eval/runner";
+import { type GoldenSet, lintGoldenSet, runEval } from "../src/eval/runner";
 import { PROMPT_VERSION } from "../src/rag/prompt";
+import { THROTTLE_MS, withThrottle } from "./_throttle";
 
 // 2026-05-07 eval 슬라이스 §7 — `pnpm eval:run` CLI 진입.
 // 사용:
@@ -31,7 +28,8 @@ function parseArgs(argv: string[]): Args {
   let k = 8;
   for (const a of argv) {
     if (a === "--lint-only") lintOnly = true;
-    else if (a.startsWith("--limit=")) limit = parseInt(a.slice("--limit=".length), 10);
+    else if (a.startsWith("--limit="))
+      limit = parseInt(a.slice("--limit=".length), 10);
     else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
   }
   return { lintOnly, limit, k };
@@ -79,6 +77,7 @@ async function main(): Promise<void> {
     embeddingApiKey: env.VOYAGE_API_KEY,
     generationApiKey: env.OPENAI_API_KEY,
   });
+  const ask = withThrottle(core.ask, THROTTLE_MS);
 
   const startedAt = Date.now();
   try {
@@ -86,7 +85,7 @@ async function main(): Promise<void> {
     console.log(`\nrunning ${total} item(s)  k=${args.k}\n`);
 
     const { runId, summary } = await runEval({
-      ask: core.ask,
+      ask,
       gateway: core.gateway,
       set,
       options: {
