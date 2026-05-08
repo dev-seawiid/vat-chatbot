@@ -67,7 +67,7 @@ DB 스키마 변경은 없음(`messages`는 이미 `conversationId`로 누적 ap
 ### 1.1 구성 요소
 1. **Ingestion 파이프라인** (`services/ingest-py`, Python + uv) — `data/sources.json`의 항목을 kind(`pdf`/`html`/`law`) 어댑터로 분기 처리: fetch → 텍스트/구조 추출 → 청크 → 임베딩 → upsert + audit. 로컬은 `pnpm ingest:all` (uv를 위임 호출), CI는 GHA python job(W4).
 2. **Retrieval** — 질문 임베딩 → pgvector cosine top-k=8
-3. **Generation** — Vercel AI SDK `streamText` + tool 2개 + 인용 강제. 구체 provider/모델 ID는 spec에 박지 않고 `packages/core/src/rag/generation-model.ts`의 `GENERATION_MODEL_ID` 상수에서 단일 결정(§3.3)
+3. **Generation** — Vercel AI SDK `streamText` + tool 2개 + 인용 강제. 구체 provider/모델 ID는 spec에 박지 않고 `packages/core/src/providers/generation.ts`의 `GENERATION_MODEL_ID` 상수에서 단일 결정(§3.3)
 4. **HITL UI** — 인용 칩, 👍/👎/코멘트, 답변 이력
 5. **LLMOps** — Langfuse trace + 사용자 score + 골든셋 자동 평가
 
@@ -293,12 +293,12 @@ retrieved context는 system 영역에 격리한다. 사용자 입력이 `</conte
 구분자를 포함해도 user role과 분리되어 모델이 system 지시로 오인하지 않는다.
 
 **모델/호출**
-- 생성 모델 어댑터는 `packages/core/src/rag/generation-model.ts` 한 파일에 캡슐화
-  (`createGenerationModel` → `GenerationModel`). 임베딩 모델(`rag/voyage.ts`)과 이름·파일을
-  분리해 RAG의 두 모델 역할이 섞이지 않게 한다. generate.ts는 `GenerationModel`만 받고
-  provider/SDK를 모른다 — 교체 시 본 파일만 손대면 끝(db/client+gateway 분리와 같은 결).
+- 생성·임베딩 모델 어댑터는 `packages/core/src/providers/{generation,embedding}.ts`에 캡슐화.
+  `rag/`에는 외부 SDK 의존이 0인 도메인 코드(citation/prompt/tools)와 합성 코드
+  (`retrieve.ts`, `ask.ts`)만 남아 의존성 방향이 `providers ← rag`로 단방향이 된다.
+  provider 교체는 `providers/` 디렉토리만 손대면 끝(db/client+gateway 분리와 같은 결).
 - 모델은 서버가 단일 결정한다(클라이언트/CLI 오버라이드 X). 구체 모델 ID는 자주 바뀌므로
-  spec에 박지 않고 `generation-model.ts`의 `GENERATION_MODEL_ID` 상수 한 곳에만 둔다.
+  spec에 박지 않고 `providers/generation.ts`의 `GENERATION_MODEL_ID` 상수 한 곳에만 둔다.
 - Vercel AI SDK `streamText` + `tools`
 - prompt caching은 provider별 지원 여부 상이 — provider 결정 시점에 같이 검토.
 

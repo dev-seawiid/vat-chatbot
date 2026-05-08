@@ -35,8 +35,8 @@ async function main(): Promise<void> {
   const env = parseEnv(process.env);
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
-    voyageApiKey: env.VOYAGE_API_KEY,
-    openaiApiKey: env.OPENAI_API_KEY,
+    embeddingApiKey: env.VOYAGE_API_KEY,
+    generationApiKey: env.OPENAI_API_KEY,
   });
 
   try {

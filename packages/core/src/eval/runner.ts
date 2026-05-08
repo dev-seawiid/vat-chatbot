@@ -1,5 +1,5 @@
 import type { EvalItem, Gateway, SaveRunArgs } from "../db/gateway";
-import type { AskFn } from "../rag/generate";
+import type { AskFn } from "../rag/ask";
 import {
   type AxisScores,
   type GoldenItem,

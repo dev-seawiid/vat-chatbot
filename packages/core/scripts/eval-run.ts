@@ -76,8 +76,8 @@ async function main(): Promise<void> {
   const env = parseEnv(process.env);
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
-    voyageApiKey: env.VOYAGE_API_KEY,
-    openaiApiKey: env.OPENAI_API_KEY,
+    embeddingApiKey: env.VOYAGE_API_KEY,
+    generationApiKey: env.OPENAI_API_KEY,
   });
 
   const startedAt = Date.now();
@@ -91,8 +91,7 @@ async function main(): Promise<void> {
       set,
       options: {
         k: args.k,
-        // Voyage 임베딩 라벨 — voyage.ts와 동기. 변경 시 한곳 더 만지지 않도록 v2에서 상수화.
-        embeddingModel: "voyage-3",
+        embeddingModel: core.embeddingModelId,
         promptVersion: PROMPT_VERSION,
         goldensetVersion: set.version,
         limit: args.limit,

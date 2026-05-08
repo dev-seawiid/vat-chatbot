@@ -3,7 +3,7 @@ import type {
   SearchFilter,
   SearchResult,
 } from "../db/gateway";
-import type { EmbedFn } from "./voyage";
+import type { EmbedFn } from "../providers/embedding";
 
 export type RetrieveOptions = {
   k?: number;

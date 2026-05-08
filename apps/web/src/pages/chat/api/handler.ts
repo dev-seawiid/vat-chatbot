@@ -28,8 +28,8 @@ function getCore(): Core {
     const env = parseEnv(process.env);
     globalForCore.__vatCore = createCore({
       databaseUrl: env.DATABASE_URL,
-      voyageApiKey: env.VOYAGE_API_KEY,
-      openaiApiKey: env.OPENAI_API_KEY,
+      embeddingApiKey: env.VOYAGE_API_KEY,
+      generationApiKey: env.OPENAI_API_KEY,
       // web plane만 OTEL SpanProcessor를 부팅(instrumentation.node.ts) — 따라서 telemetry
       // 활성화도 여기서만 결정한다. CLI는 createCore에 telemetry 미주입 → spans 미발생.
       telemetry: { isEnabled: true, functionId: "rag.ask" },
