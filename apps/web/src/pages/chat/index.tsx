@@ -22,11 +22,12 @@ import { RATE_LIMIT_ERROR_BODY } from "@/shared/lib/security/error-codes";
 import { AuroraText } from "@/shared/ui/aurora-text";
 import { TextAnimate } from "@/shared/ui/text-animate";
 
+// data/eval/golden.json 토픽 4건(기초·매입·영세-면세·가산세)을 chips용 캐주얼체로 다듬음.
 const EXAMPLE_PROMPTS = [
-  "간이과세자 부가세 신고는 어떻게 해야 하나요?",
-  "매입세액 공제 요건이 뭐예요?",
-  "전자세금계산서 발급 의무 대상은?",
-  "영세율과 면세는 어떻게 다른가요?",
+  "간이과세자는 부가세를 몇 번 신고하나요?",
+  "신용카드 결제도 매입세액 공제 되나요?",
+  "면세와 영세율, 매입세액에서 뭐가 달라요?",
+  "부가세 무신고 가산세는 얼마예요?",
 ] as const;
 
 const ERROR_MESSAGES = {
