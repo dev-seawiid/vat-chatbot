@@ -467,7 +467,7 @@ Admin 평가 대시보드 / 다중 대화 이력 페이지(`/history`)·사이�
 | RBAC | **비범위** — 인증 부재로 자연스럽게 제외 |
 | Audit | 시스템 mutation(ingest 적재, eval run 등)은 `gateway.audit.append()` 강제. `actor_id`는 NULL. feedback은 DB 미저장이라 audit 대상 아님 |
 | Audit 무결성 | `REVOKE UPDATE/DELETE FROM app_user` (append-only) |
-| Rate limit | 익명 공개 노출 보호 — IP/cookie 기반(W4) |
+| Rate limit | `/api/chat` 3-단 sliding window — per-IP 5/min, per-IP 10/day, **전역 20/day**(모든 IP 합산 비용 cap). Upstash Redis(Vercel marketplace) + `@upstash/ratelimit`. env 미설정 시 graceful 비활성. 초과 시 429 + `Retry-After` (W3 마무리) |
 | PII | 사용자 입력에서 회사명·주민번호 자동 마스킹(정규식) |
 | Secret | `lib/env.ts`에서 `zod` 스키마로 검증. `LANGFUSE_*`는 instrumentation 레이어에서 process.env 직접 소비(미설정 시 spans drop, 동작 무영향) |
 
@@ -513,7 +513,7 @@ ingest 실행
 | W1 | 프로젝트 골격 + ingest | Next.js 스캐폴드, Drizzle 마이그레이션, PDF 1개 ingest 끝까지 동작 |
 | W2 | RAG MVP | `/api/chat` 스트리밍 + 인용 표시, gateway/retrieve 단위 테스트, 시스템 프롬프트 1차 |
 | W3 | LLMOps + 평가셋 | Langfuse 연결, 골든셋 30문항 작성, `pnpm eval:run` 동작, 👍/👎 → Langfuse score 송출 (DB 미저장) |
-| W4 | HITL 영속 + 배포 | audit_log, rate limit, Vercel/Neon 배포, GHA (lint/typecheck/test/deploy까지 — eval 자동화 없음) |
+| W4 | HITL 영속 + 배포 | audit_log, Vercel/Neon 배포, GHA (lint/typecheck/test/deploy까지 — eval 자동화 없음) |
 | (여유) | 정리 | README + 데모 영상 + 기술 스택 정리표 |
 
 리스크 컷라인: W3까지 못 끝나면 평가셋은 20문항으로 축소.

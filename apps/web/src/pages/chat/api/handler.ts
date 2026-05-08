@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { type ChatUIMessage, lastUserText } from "@/entities/message";
 import { langfuseSpanProcessor } from "@/shared/lib/observability/langfuse";
+import { withRateLimit } from "@/shared/lib/security/with-rate-limit";
 
 // 단일 user query 길이 상한 — 1회 LLM 호출 input 토큰 비용 cap.
 const MAX_QUERY_LENGTH = 2000;
@@ -38,7 +39,7 @@ function getCore(): Core {
   return globalForCore.__vatCore;
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function handleChat(req: Request): Promise<Response> {
   const startedAt = Date.now();
   const parsed = await parseChatRequest(req);
   if (!parsed.ok) return parsed.response;
@@ -52,6 +53,9 @@ export async function POST(req: Request): Promise<Response> {
   scheduleLangfuseFlush();
   return response;
 }
+
+// rate-limit은 횡단 관심사 — 비즈니스 핸들러는 그대로 두고 wrapper로 합성.
+export const POST = withRateLimit(handleChat);
 
 function badRequest(message: string): Response {
   return new Response(message, { status: 400 });

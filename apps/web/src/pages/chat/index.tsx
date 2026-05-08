@@ -18,6 +18,7 @@ import { NewConversationButton } from "@/features/new-conversation";
 import { openCitationPanel } from "@/features/open-citation";
 import { Composer, ExamplePromptList } from "@/features/send-message";
 import { FeedbackBar } from "@/features/submit-feedback";
+import { RATE_LIMIT_ERROR_BODY } from "@/shared/lib/security/error-codes";
 import { AuroraText } from "@/shared/ui/aurora-text";
 import { TextAnimate } from "@/shared/ui/text-animate";
 
@@ -28,8 +29,17 @@ const EXAMPLE_PROMPTS = [
   "영세율과 면세는 어떻게 다른가요?",
 ] as const;
 
-const ERROR_MESSAGE = "잠시 후 다시 시도해주세요";
+const ERROR_MESSAGES = {
+  rateLimit: "오늘의 요청 한도를 모두 사용했어요. 내일 다시 시도해 주세요",
+  generic: "잠시 후 다시 시도해주세요",
+} as const;
 const STREAMING_STATES = new Set(["submitted", "streaming"]);
+
+// AI SDK는 응답이 !ok일 때 응답 본문을 Error.message로 박아 throw한다. 본문에 서버
+// 토큰이 들어있으면 한도 초과로 분기.
+function isRateLimitError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes(RATE_LIMIT_ERROR_BODY);
+}
 
 export function ChatWindow() {
   const [draft, setDraft] = useState<string>("");
@@ -51,7 +61,10 @@ export function ChatWindow() {
     useChat<ChatUIMessage>({
       transport,
       onError: (err) => {
-        toast.error(ERROR_MESSAGE);
+        const message = isRateLimitError(err)
+          ? ERROR_MESSAGES.rateLimit
+          : ERROR_MESSAGES.generic;
+        toast.error(message);
         console.error(err);
       },
     });
@@ -130,8 +143,7 @@ export function ChatWindow() {
                 const isLast = m.id === lastMessageId;
                 const messageStreaming =
                   isStreaming && isLast && m.role === "assistant";
-                const traceId =
-                  m.role === "assistant" ? getTraceId(m) : null;
+                const traceId = m.role === "assistant" ? getTraceId(m) : null;
                 const showFeedback =
                   m.role === "assistant" && !messageStreaming && !!traceId;
                 return (
@@ -157,10 +169,7 @@ export function ChatWindow() {
         )}
       </div>
 
-      <div
-        className="stagger-enter pb-6"
-        style={{ animationDelay: "180ms" }}
-      >
+      <div className="stagger-enter pb-6" style={{ animationDelay: "180ms" }}>
         <Composer
           status={status}
           onSubmit={submit}
@@ -180,10 +189,7 @@ type EmptyStateProps = {
 function EmptyState({ onSelectPrompt }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-start gap-10 pt-10">
-      <div
-        className="stagger-enter w-full"
-        style={{ animationDelay: "120ms" }}
-      >
+      <div className="stagger-enter w-full" style={{ animationDelay: "120ms" }}>
         <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fg-soft">
           QUICK START
         </span>
@@ -202,7 +208,8 @@ function EmptyState({ onSelectPrompt }: EmptyStateProps) {
           delay={0.25}
           className="mt-3 max-w-[44ch] text-[13.5px] leading-[1.6] text-fg-soft"
         >
-          국세청 공식 자료를 검색해 답변과 함께 인용 [n]을 표시합니다. 아래 예시를 누르거나 직접 질문을 입력해 보세요.
+          국세청 공식 자료를 검색해 답변과 함께 인용 [n]을 표시합니다. 아래
+          예시를 누르거나 직접 질문을 입력해 보세요.
         </TextAnimate>
       </div>
 
