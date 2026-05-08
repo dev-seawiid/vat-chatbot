@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1777897333712,
-      "tag": "0000_brainy_wallow",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1777900255258,
-      "tag": "0001_oval_sentinel",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778135643809,
-      "tag": "0002_broken_dracula",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1778237204853,
-      "tag": "0003_chemical_unicorn",
+      "when": 1778239015669,
+      "tag": "0000_brainy_proudstar",
       "breakpoints": true
     }
   ]
