@@ -30,8 +30,8 @@ export type Citation = {
 
 // 데이터 모델은 spec §2가 정의한다 — 본 파일이 그 spec을 코드로 구현하는 단일 진실.
 // W1: documents + chunks (ingest)
-// W3: conversations + messages (chat 영속) — feedback/audit_log/eval_*/users는 W3~W4에 추가
-// users 테이블은 W4 NextAuth와 함께 도입 — 그때까지 conversations.user_id는 FK 제약 없는 uuid.
+// W3: conversations + messages (chat 영속) + eval_items + eval_runs
+// users / feedback / audit_log는 §0.4 영구 비범위.
 
 export const documents = pgTable("documents", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -80,8 +80,6 @@ export const chunks = pgTable(
 
 export const conversations = pgTable("conversations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  // user_id FK는 W4 NextAuth와 함께 — 지금은 nullable uuid로 두어 CLI/익명 호출 허용.
-  userId: uuid("user_id"),
   title: text("title"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

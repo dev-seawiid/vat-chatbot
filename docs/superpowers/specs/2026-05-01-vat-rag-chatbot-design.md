@@ -23,15 +23,19 @@
 - 사용자 피드백(👍/👎) → **Langfuse score 송출만** (DB 미저장, 코멘트 미수집)
 - Langfuse trace
 - 골든셋 30문항 **수동 평가** (`pnpm eval:run`)
-- 감사 로그 기본 (actor_id 없이, 시스템 액션만)
-- Vercel 배포 + GHA CI/CD (lint/typecheck/test/deploy까지 — eval 자동 게이트 없음)
+- Vercel push-to-deploy
 
 명시적 비범위: 멀티 에이전트, 본격 RBAC, fine-tuning, 자체 임베딩 학습,
 **인증(NextAuth/OAuth) — 토이 데모 마찰을 0으로 두기 위해 제외, 익명 접근**.
-**LLM 호출이 일어나는 자동화** — eval cron(`eval.golden.weekly`), GHA `eval:smoke` 머지 게이트,
-ingest CI smoke 모두 제외. 토이 스케일에서 LLM/임베딩 비용 통제력이 약하고, 학습 가치는
-수동 트리거로도 충분히 얻는다. 함께 빠지는 항목: Inngest cron 인프라, admin 평가 대시보드
+**자동화 도구 자체** — eval cron(`eval.golden.weekly`)·GHA `eval:smoke` 머지 게이트·
+ingest CI smoke·**GHA CI/CD(lint/typecheck/test/deploy 잡 전체)** 모두 제외. LLM 호출이
+도는 자동화는 비용 통제력이 약하고, 비용 0인 일반 CI/CD도 토이엔 운영 부담(워크플로
+정의·시크릿 관리·디버깅) 대비 가치 작다 — Vercel push-to-deploy + 로컬 pre-commit으로
+동등 효과. 함께 빠지는 항목: Inngest cron 인프라, admin 평가 대시보드
 (`/admin/evals`), feedback DB 저장(테이블·gateway·코멘트 — Langfuse score만 살림),
+**audit_log**(시스템 mutation만 기록 가능 — `documents.created_at`/`eval_runs.ran_at` 등이
+이미 동일 정보 박제, 토이엔 중복), **PII 마스킹**(회사명·주민번호 정규식 마스킹 — 토이
+시연 트래픽엔 입력 자체에 PII가 거의 없고, 정규식 false positive 부담이 크다),
 **다중 대화 이력 UI**(사이드바 히스토리·`/history` 페이지·`/api/conversations[/...]`).
 "단일 롤링 대화"(localStorage `vat:cid`)만 유지 — 새로고침 후 같은 conversation_id가
 복원되면 그게 곧 "이력 유지"이고, 다중 대화 전환은 토이 가치 약함.
@@ -64,12 +68,12 @@ DB 스키마 변경은 없음(`messages`는 이미 `conversationId`로 누적 ap
                 │     ├─ sources/pdf.py    (pdfplumber)              │
                 │     ├─ sources/html.py   (httpx + trafilatura)     │
                 │     └─ sources/law.py    (국가법령정보센터 OpenAPI) │
-                │   → fetch → parse → chunk → embed → upsert + audit │
+                │   → fetch → parse → chunk → embed → upsert        │
                 └────────────────────────────────────────────────────┘
 ```
 
 ### 1.1 구성 요소
-1. **Ingestion 파이프라인** (`services/ingest-py`, Python + uv) — `data/sources.json`의 항목을 kind(`pdf`/`html`/`law`) 어댑터로 분기 처리: fetch → 텍스트/구조 추출 → 청크 → 임베딩 → upsert + audit. 로컬은 `pnpm ingest:all` (uv를 위임 호출), CI는 GHA python job(W4).
+1. **Ingestion 파이프라인** (`services/ingest-py`, Python + uv) — `data/sources.json`의 항목을 kind(`pdf`/`html`/`law`) 어댑터로 분기 처리: fetch → 텍스트/구조 추출 → 청크 → 임베딩 → upsert. 로컬 `pnpm ingest:all` 수동 실행만(§0.4 — CI 자동화 비범위).
 2. **Retrieval** — 질문 임베딩 → pgvector cosine top-k=8
 3. **Generation** — Vercel AI SDK `streamText` + tool 2개 + 인용 강제. 구체 provider/모델 ID는 spec에 박지 않고 `packages/core/src/providers/generation.ts`의 `GENERATION_MODEL_ID` 상수에서 단일 결정(§3.3)
 4. **HITL UI** — 인용 칩, 👍/👎(Langfuse score), 답변 이력
@@ -79,7 +83,7 @@ DB 스키마 변경은 없음(`messages`는 이미 `conversationId`로 누적 ap
 서버리스 LLM 애플리케이션에서 검증된 패턴을 토이 스케일로 적용한다:
 
 - **Polyglot plane 분리** — `apps/web`(응답, TS) ↔ `packages/core`(공유 lib, TS) ↔ `services/ingest-py`(데이터 가공, Python). 세 plane이 **process 경계**로 분리되어 web 번들에 ingest 의존성(pdfplumber 등)이 섞이지 않고, 각 plane이 자기 도메인에 맞는 도구를 쓴다.
-- **단일 스키마 소스 + 양 plane gateway** — Drizzle 스키마(`packages/core/src/db/schema.ts`)가 데이터 모델의 단일 진실. TS는 `gateway.ts`, Python은 `gateway.py`로 각자 plane의 모든 DB 접근을 통제하되, 양쪽 모두 동일한 invariant(append-only audit, `file_hash` UNIQUE, `app_user` role 강제)를 따른다.
+- **단일 스키마 소스 + 양 plane gateway** — Drizzle 스키마(`packages/core/src/db/schema.ts`)가 데이터 모델의 단일 진실. TS는 `gateway.ts`, Python은 `gateway.py`로 각자 plane의 모든 DB 접근을 통제하되, 양쪽 모두 동일한 invariant(`file_hash` UNIQUE, `(doc_id, content_hash)` UNIQUE)를 따른다.
 - **오프라인 경로 분리** — `/api/chat`은 sync, ingest는 CLI 스크립트(로컬), 평가는 `pnpm eval:run` 수동 CLI. 응답 경로 바깥에서 수행.
 
 의도적으로 적용하지 않는 패턴(토이 스케일에 과잉이라 판단):
@@ -121,8 +125,7 @@ chunks (
 
 -- 대화/메시지
 -- §0.4 비범위(인증) 결정에 따라 user_id·users 테이블은 제외. conversations는 익명으로
--- 생성되며 cookie/local에 보관되는 conversation_id로만 식별. feedback도 동일하게
--- user_id 컬럼 없음.
+-- 생성되며 localStorage에 보관되는 conversation_id로만 식별. feedback은 §0.4 DB 미저장.
 conversations (
   id            uuid PK
   title         text
@@ -147,17 +150,8 @@ messages (
 -- HITL 피드백: §0.4 비범위 — DB 미저장. 👍/👎는 Langfuse trace에 score로만 attach
 -- (messages.trace_id 키, name="user-thumbs", value=1|-1). 코멘트는 v2.
 
--- 감사 로그 (append-only) — 인증 비범위로 actor_id 컬럼 자체 제외.
--- 시스템 mutation(ingest 적재, eval run 등)만 기록.
-audit_log (
-  id            uuid PK
-  action        text
-  target        text
-  payload       jsonb
-  ip            inet
-  created_at    timestamptz
-)
--- REVOKE UPDATE/DELETE TO app_user
+-- 감사 로그: §0.4 비범위 — 시스템 mutation은 documents.created_at / eval_runs.ran_at
+-- 등 본 테이블 자체에 박제되어 있어 토이엔 audit_log가 중복 정보. 향후 actor 도입 시 재검토.
 
 -- 평가
 eval_items (
@@ -178,7 +172,7 @@ eval_runs (
   summary       jsonb
 )
 
--- 사용자: 비범위(§0.4). 향후 도입 시 conversations·feedback·audit_log에 user_id를 추가.
+-- 사용자: 비범위(§0.4). 향후 도입 시 conversations에 user_id 컬럼 추가.
 ```
 
 ### 2.1 Gateway 인터페이스 (양 plane)
@@ -186,24 +180,23 @@ eval_runs (
 **TS — `packages/core/src/db/gateway.ts`** (응답 plane: apps/web, eval CLI)
 ```ts
 export const gateway = {
-  documents: { upsert, listByVersion },
-  chunks:    { search, insertMany, byIds },
-  messages:  { create, listByConversation },
-  audit:     { append },
-  eval:      { saveRun, listRuns },
+  chunks:   { search },
+  messages: { savePair },
+  evalItems:{ upsert },
+  eval:     { saveRun, listRuns },
 };
-// feedback gateway 없음 — §0.4 비범위. 👍/👎는 라우트에서 Langfuse client로 직접 score 송출.
+// feedback / audit gateway 없음 — §0.4 비범위. 👍/👎는 라우트에서 Langfuse client로 직접 score 송출.
 ```
 
 **Python — `services/ingest-py/src/ingest/gateway.py`** (ingest plane)
 ```python
-class Gateway:
-    documents: DocumentsRepo  # upsert(idempotent on file_hash), list_by_version
-    chunks:    ChunksRepo     # insert_many (search은 TS plane에서)
-    audit:     AuditRepo      # append (append-only)
+# 함수형 gateway — psycopg connection을 인자로 받는 free function 묶음
+upsert_document(conn, *, title, file_hash, ...)   # idempotent on file_hash
+insert_chunks(conn, rows)                          # ON CONFLICT (doc_id, content_hash) DO NOTHING
+count_chunks_by_doc(conn, doc_id)
 ```
 
-각 plane은 자기 gateway 객체로만 DB 접근. 두 gateway는 같은 Postgres 스키마를 공유하고 같은 invariant(`file_hash` UNIQUE, `(doc_id, content_hash)` UNIQUE, `app_user` role의 audit_log UPDATE/DELETE 권한 없음)를 SQL 수준에서 강제한다. feedback은 §0.4에서 DB 미저장으로 결정 — gateway 도메인 자체가 없다.
+각 plane은 자기 gateway로만 DB 접근. 두 gateway는 같은 Postgres 스키마를 공유하고 같은 invariant(`file_hash` UNIQUE, `(doc_id, content_hash)` UNIQUE)를 SQL 수준에서 강제한다. feedback / audit_log는 §0.4에서 비범위로 결정 — 도메인 자체가 없다.
 
 ---
 
@@ -211,7 +204,7 @@ class Gateway:
 
 ### 3.1 Ingestion (`services/ingest-py` — Python CLI)
 
-진입점은 admin 업로드가 아니라 **Python CLI**다. `data/sources.json`에 국세청 자료의 메타데이터(URL/법령 식별자/버전)를 kind별로 선언하고, 어댑터가 kind에 맞춰 fetch·파싱한다. CI(GHA)도 동일 CLI를 실행한다.
+진입점은 admin 업로드가 아니라 **Python CLI**다. `data/sources.json`에 국세청 자료의 메타데이터(URL/법령 식별자/버전)를 kind별로 선언하고, 어댑터가 kind에 맞춰 fetch·파싱한다. 로컬 수동 실행만 — CI 자동화는 §0.4 비범위.
 
 **소스 종류와 어댑터** (spec §0.3의 세 카테고리를 모두 커버)
 
@@ -465,10 +458,9 @@ Admin 평가 대시보드 / 다중 대화 이력 페이지(`/history`)·사이�
 |---|---|
 | 인증 | **비범위** — 익명 접근. 데모 마찰을 0으로 두기 위함(§0.4) |
 | RBAC | **비범위** — 인증 부재로 자연스럽게 제외 |
-| Audit | 시스템 mutation(ingest 적재, eval run 등)은 `gateway.audit.append()` 강제. `actor_id`는 NULL. feedback은 DB 미저장이라 audit 대상 아님 |
-| Audit 무결성 | `REVOKE UPDATE/DELETE FROM app_user` (append-only) |
+| Audit log | **비범위** — 시스템 mutation 시각은 `documents.created_at`/`eval_runs.ran_at`에 이미 박제(§0.4). 토이엔 중복 |
 | Rate limit | `/api/chat` 3-단 sliding window — per-IP 5/min, per-IP 10/day, **전역 20/day**(모든 IP 합산 비용 cap). Upstash Redis(Vercel marketplace) + `@upstash/ratelimit`. env 미설정 시 graceful 비활성. 초과 시 429 + `Retry-After` (W3 마무리) |
-| PII | 사용자 입력에서 회사명·주민번호 자동 마스킹(정규식) |
+| PII 마스킹 | **비범위** — 토이 시연 트래픽에 PII 입력 거의 없음, 정규식 false positive 부담(§0.4) |
 | Secret | `lib/env.ts`에서 `zod` 스키마로 검증. `LANGFUSE_*`는 instrumentation 레이어에서 process.env 직접 소비(미설정 시 spans drop, 동작 무영향) |
 
 ### 5.3 인프라
@@ -480,27 +472,20 @@ docker-compose.yml                            Vercel (apps/web만 빌드)
  └─ langfuse (W3+)                            Langfuse Cloud (free)
 
 ingest 실행
- - 로컬:  pnpm ingest:all   (내부적으로 uv run python -m scripts.ingest_all)
- - CI:    GHA python job (W4) — actions/setup-python + uv sync + 동일 명령
+ - 로컬: pnpm ingest:all   (내부적으로 uv run python -m scripts.ingest_all)
+ - CI 자동 실행은 §0.4 비범위 — 수동만.
 ```
 
 런타임 분리: Vercel은 `apps/web`만 빌드하므로 ingest 의존성(pdfplumber 등 Python lib)이 web 번들에 들어가지 않음.
 
-### 5.4 CI/CD (GitHub Actions — 두 단계 잡)
+### 5.4 배포·검증 정책
 
-**TS 잡** (apps/web + packages/core)
-1. `lint` (ESLint + Prettier)
-2. `typecheck` (`pnpm -r exec tsc --noEmit`)
-3. `test:ts` (Vitest — gateway / retrieve / score)
-4. `vercel deploy` (preview / production 분기, `apps/web`만)
+GHA CI/CD는 §0.4 비범위. 변경 검증은 다음으로 닫는다:
+- 로컬 pre-commit: `pnpm -r exec tsc --noEmit` + `pnpm --filter @vat/web lint`
+- 단위 테스트(Vitest / pytest)는 필요 시 수동 실행
+- 배포: Vercel push-to-deploy (apps/web만 빌드)
 
-`eval:smoke` PR 게이트는 §0.4 비범위 — LLM 호출 자동화는 토이 스케일에서 비용 통제 차원 제외.
-
-**Python 잡** (services/ingest-py)
-1. `uv sync`
-2. `pytest` (gateway · 어댑터 3종 · chunker · orchestrate)
-
-`ingest:all` smoke는 voyage embed 호출이 일어나 LLM 자동화 금지 원칙(§0.4)과 충돌 — CI는 단위 테스트(`pytest`)까지만, 실제 ingest는 수동.
+회귀 가드(eval, ingest smoke)는 §0.4 그대로 비범위.
 
 ---
 
@@ -513,7 +498,7 @@ ingest 실행
 | W1 | 프로젝트 골격 + ingest | Next.js 스캐폴드, Drizzle 마이그레이션, PDF 1개 ingest 끝까지 동작 |
 | W2 | RAG MVP | `/api/chat` 스트리밍 + 인용 표시, gateway/retrieve 단위 테스트, 시스템 프롬프트 1차 |
 | W3 | LLMOps + 평가셋 | Langfuse 연결, 골든셋 30문항 작성, `pnpm eval:run` 동작, 👍/👎 → Langfuse score 송출 (DB 미저장) |
-| W4 | HITL 영속 + 배포 | audit_log, Vercel/Neon 배포, GHA (lint/typecheck/test/deploy까지 — eval 자동화 없음) |
+| W4 | 배포 | Vercel push-to-deploy + Neon 연결 (audit/PII/GHA 모두 §0.4 비범위) |
 | (여유) | 정리 | README + 데모 영상 + 기술 스택 정리표 |
 
 리스크 컷라인: W3까지 못 끝나면 평가셋은 20문항으로 축소.
@@ -527,7 +512,7 @@ ingest 실행
 - **apps/web** — Next.js 16 (App Router) / TypeScript / Vercel AI SDK
 - **packages/core** — Drizzle ORM (스키마 단일 소스) / postgres.js / zod
 - **services/ingest-py** — Python 3.12 / uv / psycopg + pgvector / pdfplumber / trafilatura · selectolax / httpx / pydantic + pydantic-settings / voyageai
-- **Infra** — Neon Postgres + pgvector / OpenAI + Voyage-3 / Langfuse / GitHub Actions (lint/typecheck/test/deploy) / Docker Compose
+- **Infra** — Neon Postgres + pgvector / OpenAI + Voyage-3 / Langfuse / Vercel (push-to-deploy) / Upstash Redis (rate limit) / Docker Compose (dev only)
 
 ---
 
@@ -542,9 +527,9 @@ ingest 실행
 | REST API | `/api/chat`, `/api/feedback` |
 | CLI / 데이터 수집 | `services/ingest-py` Python CLI + `data/sources.json` 레지스트리 |
 | 데이터 가공 (Python) | pdfplumber(PDF) · trafilatura/selectolax(HTML) · 국가법령정보센터 OpenAPI(법령) |
-| RDBMS 스키마/마이그레이션 | Drizzle + PostgreSQL(Neon) — feedback 테이블 제외 후 6개 테이블 (스키마 단일 소스) |
-| 감사 로그 / observability | append-only `audit_log` + `app_user` REVOKE + Langfuse trace |
-| 컨테이너 / CI/CD | docker-compose + GitHub Actions (Node + Python 두 단계) — LLM 호출 자동화는 §0.4 비범위 |
+| RDBMS 스키마/마이그레이션 | Drizzle + PostgreSQL(Neon) — 6개 테이블 (스키마 단일 소스) |
+| Observability | Langfuse trace (retrieve/generation/tool span 자동) + 👍/👎 user score |
+| 컨테이너 / 배포 | docker-compose(dev only) + Vercel push-to-deploy. CI 자동화·audit_log·PII 마스킹은 §0.4 비범위 |
 | LLM 애플리케이션 | OpenAI + Vercel AI SDK + tool calling |
 | Vector retrieval | pgvector + Voyage-3 임베딩 (양 plane에서 호출) |
 | Evaluation / LLMOps | 골든셋 30문항 + 결정적 자동 채점(수동 트리거) + Langfuse trace + 👍/👎 score |

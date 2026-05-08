@@ -8,7 +8,7 @@
 ## 0. 슬라이스 개요
 
 ### 0.1 목적
-마스터 spec §4(LLMOps & 평가)의 자동 평가 파이프라인을 닫는다. 30문항 골든셋 JSON을 박제하고, `pnpm eval:run`으로 일괄 실행해 4축 자동 채점 결과를 `eval_runs`에 적재한다. 이후 슬라이스(Inngest cron, GHA smoke gate, admin 대시보드)가 본 슬라이스의 출력을 소비한다.
+마스터 spec §4(LLMOps & 평가)의 수동 평가 파이프라인을 닫는다. 30문항 골든셋 JSON을 박제하고, `pnpm eval:run`으로 일괄 실행해 4축 자동 채점 결과를 `eval_runs`에 적재한다. 자동화·머지 게이트·admin 대시보드는 마스터 §0.4에서 영구 범위 외 — 회귀 비교는 SQL/Drizzle Studio로 수동.
 
 ### 0.2 범위 (W3 eval)
 - `data/eval/golden.json` — 30문항 정답 골든셋 (단일 진실)
@@ -326,7 +326,7 @@ pnpm eval:run [--lint-only] [--limit=N] [--model=…] [--k=8]
 5. summary 집계 (§5.2)
 6. `eval_runs` 1행 INSERT (`gateway.eval.saveRun`)
 7. stdout에 요약 표 + failures 목록 출력 + 종료 코드 0
-   - `weighted_avg < 0.6` 등 threshold 게이팅은 W4 GHA 슬라이스로 미룸
+   - `weighted_avg < 0.6` 등 threshold 게이팅은 마스터 §0.4 비범위(자동화 차단)
 
 ### 7.4 의존성
 - `@vat/core::ask` (이미 존재, `packages/core/scripts/ask.ts`와 동일 호출 경로)
