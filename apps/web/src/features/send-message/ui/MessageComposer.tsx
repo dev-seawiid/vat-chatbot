@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import { MAX_MESSAGE_LENGTH } from "@/entities/message";
 import { cn } from "@/shared/lib/utils";
-import { BorderBeam } from "@/shared/ui/border-beam";
 import { Textarea } from "@/shared/ui/textarea";
 
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error";
@@ -53,20 +52,12 @@ export function MessageComposer({
         focused ? "border-yellow/30" : "border-white/10 hover:border-white/15",
       )}
     >
-      {focused && (
-        <BorderBeam
-          size={120}
-          duration={5}
-          colorFrom="#ffe600"
-          colorTo="#a1a1aa"
-          borderWidth={1}
-        />
-      )}
-
       <div className="relative p-5">
         <Textarea
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
+          onChange={(e) =>
+            onDraftChange(e.target.value.slice(0, MAX_MESSAGE_LENGTH))
+          }
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="부가세에 대해 물어보세요 — 예: 간이과세자 신고는 어떻게 하나요?"
