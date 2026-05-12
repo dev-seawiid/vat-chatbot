@@ -1,3 +1,5 @@
+import "server-only";
+
 import { propagateAttributes } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
 import { type Core, createCore, parseEnv } from "@vat/core";
@@ -6,8 +8,8 @@ import { after } from "next/server";
 import { z } from "zod";
 
 import { type ChatUIMessage, lastUserText } from "@/entities/message";
-import { langfuseSpanProcessor } from "@/shared/lib/observability";
-import { withRateLimit } from "@/shared/lib/security";
+import { langfuseSpanProcessor } from "@/shared/lib/observability/server";
+import { withRateLimit } from "@/shared/lib/security/server";
 
 // 단일 user query 길이 상한 — 1회 LLM 호출 input 토큰 비용 cap.
 const MAX_QUERY_LENGTH = 2000;

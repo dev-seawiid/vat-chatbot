@@ -1,8 +1,3 @@
+// Client-safe entries만 노출 — server-only는 ./server에서 import한다.
 export { RATE_LIMIT_ERROR_BODY } from "./error-codes";
-export {
-  checkChatRateLimit,
-  getClientIp,
-  type RateLimitResult,
-  type RateLimitScope,
-} from "./ratelimit";
-export { withRateLimit } from "./with-rate-limit";
+export type { RateLimitResult, RateLimitScope } from "./ratelimit";

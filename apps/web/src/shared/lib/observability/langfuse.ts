@@ -1,3 +1,5 @@
+import "server-only";
+
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 
 // 싱글톤 — instrumentation.node.ts(NodeSDK 등록)와 route handler(after-forceFlush)가 같은

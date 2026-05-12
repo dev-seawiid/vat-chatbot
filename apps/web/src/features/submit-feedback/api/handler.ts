@@ -1,3 +1,5 @@
+import "server-only";
+
 import { LangfuseClient } from "@langfuse/client";
 import { z } from "zod";
 

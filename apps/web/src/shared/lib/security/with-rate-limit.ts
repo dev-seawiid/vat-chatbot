@@ -1,3 +1,5 @@
+import "server-only";
+
 import { RATE_LIMIT_ERROR_BODY } from "./error-codes";
 import { checkChatRateLimit, getClientIp } from "./ratelimit";
 
