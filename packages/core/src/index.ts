@@ -10,4 +10,4 @@ export type {
   SearchOptions,
   SearchResult,
 } from "./db/gateway";
-export type { Citation } from "./db/schema";
+export type { Citation } from "./rag/citation";

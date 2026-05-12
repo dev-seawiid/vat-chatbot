@@ -1,13 +1,8 @@
 import { desc, sql } from "drizzle-orm";
 
+import type { Citation } from "../rag/citation";
 import type { Db } from "./client";
-import {
-  type Citation,
-  conversations,
-  evalItems,
-  evalRuns,
-  messages,
-} from "./schema";
+import { conversations, evalItems, evalRuns, messages } from "./schema";
 
 // spec §2.1 인터페이스 — TS plane DB 진입점. 도메인별 namespace로 묶어
 // 소비자(`apps/web` route handler/CLI)가 drizzle 객체를 직접 import하지 않도록 통제한다.

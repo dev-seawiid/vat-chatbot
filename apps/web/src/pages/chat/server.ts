@@ -66,7 +66,7 @@ export async function streamChat(input: StreamChatInput) {
 
       const meta = await finish;
       try {
-        await core.gateway.messages.savePair({
+        await core.recordChatTurn({
           conversationId: input.conversationId,
           query: input.query,
           text: meta.text,
@@ -80,7 +80,7 @@ export async function streamChat(input: StreamChatInput) {
         });
       } catch (err) {
         // spec §4 — persist 실패는 답변이 이미 보여진 상태이므로 사용자 영향 없이 서버 로그만.
-        console.error("[persist] savePair failed:", err);
+        console.error("[persist] recordChatTurn failed:", err);
       }
     },
   });

@@ -1,7 +1,7 @@
 import type { TelemetrySettings } from "ai";
 
 import { createDb } from "./db/client";
-import { createGateway, type Gateway } from "./db/gateway";
+import { createGateway, type Gateway, type SavePairArgs } from "./db/gateway";
 import { createEmbeddingModel } from "./providers/embedding";
 import { createGenerationModel } from "./providers/generation";
 import { type AskFn, createAsk } from "./rag/ask";
@@ -26,6 +26,9 @@ export type CoreConfig = {
 export type Core = {
   ask: AskFn;
   retrieve: RetrieveFn;
+  /** chat turn(user 질문 + assistant 답변) 영속화 use case. web 진입점은 본 메서드 사용. */
+  recordChatTurn: (args: SavePairArgs) => Promise<void>;
+  /** internal — eval CLI/runner가 직접 접근하기 위한 출구. web 진입점에서는 사용 금지(use case 경유). */
   gateway: Gateway;
   /** eval_runs 라벨링 등에서 사용 — 어느 임베딩 모델로 적재·검색했는지 박제. */
   embeddingModelId: string;
@@ -47,6 +50,7 @@ export function createCore(config: CoreConfig): Core {
   return {
     ask,
     retrieve,
+    recordChatTurn: (args) => gateway.messages.savePair(args),
     gateway,
     embeddingModelId: embeddingModel.modelId,
     close,

@@ -10,23 +10,7 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
-// spec §3.4 인용 객체 — 별도 모듈을 두지 않고 schema와 함께 두어 jsonb 컬럼 타이핑에 직접 사용.
-// rag/ 레이어는 이 타입을 import해 retrieve 결과를 변환한다.
-export type Citation = {
-  chunk_id: string;
-  doc_id: string;
-  // sources.json의 자연키(예: "nts-vat-2025-2q-manual"). eval 채점에서 expected_citation_doc과
-  // 직접 비교하는 휴먼 가독 식별자(2026-05-07 eval 슬라이스 §0.4 #1·#2).
-  // ingest 시 chunks.metadata.source_id에 박제, retrieve가 SELECT해 채운다.
-  source_id: string;
-  doc_title: string;
-  doc_version: string | null;
-  // documents.source_url — UI 인용 패널의 "원본 PDF 다운로드" 앵커 대상. nullable.
-  source_url: string | null;
-  page: number | null;
-  section_path: string | null;
-  snippet: string;
-};
+import type { Citation } from "../rag/citation";
 
 // 데이터 모델은 spec §2가 정의한다 — 본 파일이 그 spec을 코드로 구현하는 단일 진실.
 // W1: documents + chunks (ingest)

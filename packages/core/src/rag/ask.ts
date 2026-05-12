@@ -1,9 +1,8 @@
 import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
 import type { SearchResult } from "../db/gateway";
-import type { Citation } from "../db/schema";
-import { toCitations } from "./citation";
 import type { GenerationModel } from "../providers/generation";
+import { type Citation, toCitations } from "./citation";
 import { buildSystemMessage } from "./prompt";
 import type { RetrieveFn, RetrieveOptions } from "./retrieve";
 import { tools } from "./tools";
