@@ -20,7 +20,7 @@ export function createDb(databaseUrl: string): DbHandle {
   // prepare:false로 끄면 로컬·Neon 양쪽에서 안전(로컬은 손해 미미). Python plane의
   // psycopg `prepare_threshold=None`과 정확히 같은 결정.
   const client = postgres(databaseUrl, { prepare: false });
-  const db = drizzle(client, { schema });
+  const db = drizzle(client, { schema, casing: "snake_case" });
   return {
     db,
     close: async () => {
