@@ -120,6 +120,8 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  jobs/ingest: {}
+
   packages/core:
     dependencies:
       '@ai-sdk/openai':
