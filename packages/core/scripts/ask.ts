@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     console.log(`k       : ${k}`);
     console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
 
-    const { textStream, citations, finish } = await core.ask(query, {
+    const { textStream, citations, finish } = await core.chat.ask(query, {
       k,
       filter,
     });

@@ -40,12 +40,12 @@ export async function streamChat(input: StreamChatInput) {
   const traceId = trace.getActiveSpan()?.spanContext().traceId ?? null;
 
   // propagateAttributes는 호출 시점의 active span + 콜백 안에서 생성되는 모든 child span에
-  // sessionId/traceName을 박는다. streamText는 core.ask 내부에서 호출되므로 그 시점 context를
-  // 캡처해야 — 즉 core.ask 자체를 감싸야 한다(콜백 종료 후 stream consumption은 컨텍스트
+  // sessionId/traceName을 박는다. streamText는 chat.ask 내부에서 호출되므로 그 시점 context를
+  // 캡처해야 — 즉 chat.ask 자체를 감싸야 한다(콜백 종료 후 stream consumption은 컨텍스트
   // 밖이지만, 중요한 건 span CREATION 시점 컨텍스트라 문제 없음).
   const { textStream, citations, chunks, finish } = await propagateAttributes(
     { sessionId: input.conversationId, traceName: "chat-message" },
-    () => core.ask(input.query),
+    () => core.chat.ask(input.query),
   );
 
   return createUIMessageStream<ChatUIMessage>({
@@ -66,7 +66,7 @@ export async function streamChat(input: StreamChatInput) {
 
       const meta = await finish;
       try {
-        await core.recordChatTurn({
+        await core.chat.recordChatTurn({
           conversationId: input.conversationId,
           query: input.query,
           text: meta.text,

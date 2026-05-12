@@ -48,7 +48,7 @@ async function main(): Promise<void> {
     console.log(`k       : ${k}`);
     console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
 
-    const results = await core.retrieve(query, { k, filter });
+    const results = await core.retrieval.retrieve(query, { k, filter });
     if (results.length === 0) {
       console.log("(no results)");
       return;

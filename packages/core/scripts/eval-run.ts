@@ -107,14 +107,14 @@ async function main(): Promise<void> {
     embeddingApiKey: env.VOYAGE_API_KEY,
     generationApiKey: env.OPENAI_API_KEY,
   });
-  const ask = withThrottle(core.ask, THROTTLE_MS);
+  const ask = withThrottle(core.chat.ask, THROTTLE_MS);
 
   const startedAt = Date.now();
   try {
     const total = args.limit ?? set.items.length;
     console.log(`\nrunning ${total} item(s)  k=${args.k}\n`);
 
-    const { runId, summary } = await core.evalService.runEval({
+    const { runId, summary } = await core.eval.runEval({
       ask,
       set,
       options: {

@@ -1,20 +1,16 @@
 import type { TelemetrySettings } from "ai";
 
 import { createDb } from "./db/client";
-import { createGateway, type Gateway } from "./db/gateway";
 import { createEmbeddingModel } from "./providers/embedding";
 import { createGenerationModel } from "./providers/generation";
 import { createChunkRepository } from "./repositories/chunk.repository";
 import { createEvalRepository } from "./repositories/eval.repository";
-import {
-  createMessageRepository,
-  type SavePairArgs,
-} from "./repositories/message.repository";
-import { type AskFn, createChatService } from "./services/chat.service";
+import { createMessageRepository } from "./repositories/message.repository";
+import { type ChatService, createChatService } from "./services/chat.service";
 import { createEvalService, type EvalService } from "./services/eval.service";
 import {
   createRetrievalService,
-  type RetrieveFn,
+  type RetrievalService,
 } from "./services/retrieval.service";
 
 // composition root — 모든 외부 의존(DB, 임베딩 모델, 생성 모델)을 한 곳에서 묶는다.
@@ -23,7 +19,8 @@ import {
 // 넘기는 것이 boundary 책임.
 //
 // 본 파일은 "wiring만" — provider/모델/스키마 결정은 각 모듈(providers/*, db/*) 책임.
-// repository 인스턴스는 service에만 주입하고 외부 표면(Core)에는 service 산출 함수만 노출한다.
+// 외부 표면(Core)에는 service만 노출하고 repository는 service deps로만 흘려보낸다.
+// controller(apps/web route handler, eval CLI)는 core.<service>.<usecase>() 형태로만 호출.
 
 export type CoreConfig = {
   databaseUrl: string;
@@ -35,14 +32,9 @@ export type CoreConfig = {
 };
 
 export type Core = {
-  ask: AskFn;
-  retrieve: RetrieveFn;
-  /** chat turn(user 질문 + assistant 답변) 영속화 use case. web 진입점은 본 메서드 사용. */
-  recordChatTurn: (args: SavePairArgs) => Promise<void>;
-  /** S3 임시 노출 — eval CLI가 호출. S4에서 core.eval로 표면 통합 예정. */
-  evalService: EvalService;
-  /** S2 임시 facade — 외부 사용처 없음. S4에서 제거 예정. */
-  gateway: Gateway;
+  chat: ChatService;
+  retrieval: RetrievalService;
+  eval: EvalService;
   /** eval_runs 라벨링 등에서 사용 — 어느 임베딩 모델로 적재·검색했는지 박제. */
   embeddingModelId: string;
   /** 프로세스 종료 시 명시 호출 (CLI). web request lifecycle에선 미호출이 정상. */
@@ -72,11 +64,9 @@ export function createCore(config: CoreConfig): Core {
   const evalService = createEvalService({ evalRepo });
 
   return {
-    ask: chat.ask,
-    retrieve: retrieval.retrieve,
-    recordChatTurn: chat.recordChatTurn,
-    evalService,
-    gateway: createGateway(db),
+    chat,
+    retrieval,
+    eval: evalService,
     embeddingModelId: embeddingModel.modelId,
     close,
   };
