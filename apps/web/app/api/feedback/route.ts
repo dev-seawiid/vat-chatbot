@@ -2,4 +2,4 @@
 // 미호환 가능성 + chat 라우트와 동일 정책 유지.
 export const runtime = "nodejs";
 
-export { POST } from "@/pages/feedback/server";
+export { POST } from "@/features/submit-feedback/server";

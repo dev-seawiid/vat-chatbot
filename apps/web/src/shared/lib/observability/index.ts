@@ -1,0 +1,1 @@
+export { langfuseSpanProcessor } from "./langfuse";
