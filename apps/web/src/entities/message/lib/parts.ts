@@ -25,14 +25,13 @@ export function getTraceId(message: ChatUIMessage): string | null {
   return null;
 }
 
-// 서버 boundary용 — 외부 입력(JSON.parse 결과)을 ChatUIMessage[]로 강제 캐스팅하지 않고
-// type guard로 안전하게 좁힌 뒤 마지막 user 텍스트만 추출. 검증 실패 시 빈 문자열을 반환해
+// 서버 boundary용 — 외부 입력(JSON.parse 결과)을 ChatUIMessage로 강제 캐스팅하지 않고
+// type guard로 안전하게 좁힌 뒤 user 텍스트만 추출. 검증 실패 시 빈 문자열을 반환해
 // 호출자가 "empty query" 분기로 처리하도록 한다.
-export function lastUserText(messages: readonly unknown[]): string {
-  const last = messages.at(-1);
-  if (!isUserMessage(last)) return "";
+export function extractUserText(message: unknown): string {
+  if (!isUserMessage(message)) return "";
   let out = "";
-  for (const part of last.parts) {
+  for (const part of message.parts) {
     if (isTextPart(part)) out += part.text;
   }
   return out;

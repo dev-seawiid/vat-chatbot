@@ -1,14 +1,13 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { conversationStorage } from "@/entities/conversation";
-import { CHAT_API, type ChatUIMessage } from "@/entities/message";
+import { type ChatUIMessage } from "@/entities/message";
 import { NewConversationButton } from "@/features/new-conversation";
-import { MessageComposer } from "@/features/send-message";
+import { createChatTransport, MessageComposer } from "@/features/send-message";
 import { RATE_LIMIT_ERROR_BODY } from "@/shared/lib/security";
 
 import { EmptyState } from "./EmptyState";
@@ -48,17 +47,7 @@ export function ChatWindow() {
   const [draft, setDraft] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // conversationId는 React state로 들고 있지 않는다 — localStorage가 단일 진실.
-  // 매 요청 시 body()가 호출되며 그 시점의 localStorage를 읽으므로 reset 후 첫
-  // 요청부터 새 ID가 자연스럽게 반영된다.
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport<ChatUIMessage>({
-        api: CHAT_API,
-        body: () => ({ conversationId: conversationStorage.getOrCreateId() }),
-      }),
-    [],
-  );
+  const transport = useMemo(() => createChatTransport(), []);
 
   const { messages, sendMessage, status, stop, setMessages } =
     useChat<ChatUIMessage>({

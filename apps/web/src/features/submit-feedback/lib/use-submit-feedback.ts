@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { FEEDBACK_API } from "../api/endpoints";
+import { submitFeedback } from "../api/api";
 
 export type FeedbackValue = 1 | -1;
 
@@ -26,12 +26,7 @@ export function useSubmitFeedback(traceId: string): UseSubmitFeedbackResult {
     setStatus("submitting");
     setValue(next);
     try {
-      const res = await fetch(FEEDBACK_API, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ traceId, value: next }),
-      });
-      if (!res.ok) throw new Error(`feedback ${res.status}`);
+      await submitFeedback({ traceId, value: next });
       setStatus("done");
     } catch (err) {
       console.warn("[feedback] submit failed:", err);

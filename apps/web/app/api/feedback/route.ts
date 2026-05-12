@@ -1,5 +1,23 @@
-// LangfuseClient는 Node 전용 (fetch 외에 process.env 접근). edge 런타임 시 일부 의존
-// 미호환 가능성 + chat 라우트와 동일 정책 유지.
-export const runtime = "nodejs";
+import { z } from "zod";
 
-export { POST } from "@/features/submit-feedback/server";
+import { recordFeedback } from "@/features/submit-feedback/server";
+import { parseJsonBody } from "@/shared/api/server";
+
+const FeedbackBodySchema = z.object({
+  traceId: z.string().min(1),
+  value: z.union([z.literal(1), z.literal(-1)]),
+});
+
+export async function POST(req: Request): Promise<Response> {
+  const parsed = await parseJsonBody(req, FeedbackBodySchema);
+  if (!parsed.ok) return parsed.response;
+
+  try {
+    await recordFeedback(parsed.data);
+  } catch (err) {
+    console.error("[feedback] flush failed:", err);
+    return new Response("score export failed", { status: 502 });
+  }
+
+  return new Response(null, { status: 204 });
+}

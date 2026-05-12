@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { MAX_MESSAGE_LENGTH } from "@/entities/message";
 import { cn } from "@/shared/lib/utils";
 import { BorderBeam } from "@/shared/ui/border-beam";
 import { Textarea } from "@/shared/ui/textarea";
@@ -9,7 +10,6 @@ import { Textarea } from "@/shared/ui/textarea";
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 
 const STREAMING_STATES = new Set<ChatStatus>(["submitted", "streaming"]);
-const MAX_LENGTH = 1000;
 const COUNTER_WARN_THRESHOLD = 100;
 
 type MessageComposerProps = {
@@ -24,7 +24,7 @@ type MessageComposerProps = {
  * 다크 입력 컴포저.
  * - bg-surface-1 + 헤어라인. focus-within 시 옐로우 BorderBeam 회전 (Magic UI).
  * - 푸터: mono kbd 힌트 좌측, 카운터 + ASK/STOP 액션 우측.
- * - Enter 전송, Shift+Enter 줄바꿈, 1000자 한도.
+ * - Enter 전송, Shift+Enter 줄바꿈, MAX_MESSAGE_LENGTH(도메인 상수) 한도.
  */
 export function MessageComposer({
   status,
@@ -38,7 +38,7 @@ export function MessageComposer({
   const isStreaming = STREAMING_STATES.has(status);
   const trimmed = draft.trim();
   const canSubmit = trimmed.length > 0 && !isStreaming;
-  const remaining = MAX_LENGTH - draft.length;
+  const remaining = MAX_MESSAGE_LENGTH - draft.length;
 
   function submit(): void {
     if (!canSubmit) return;
@@ -66,13 +66,13 @@ export function MessageComposer({
       <div className="relative p-5">
         <Textarea
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value.slice(0, MAX_LENGTH))}
+          onChange={(e) => onDraftChange(e.target.value.slice(0, MAX_MESSAGE_LENGTH))}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="부가세에 대해 물어보세요 — 예: 간이과세자 신고는 어떻게 하나요?"
           aria-label="질문 입력"
           disabled={isStreaming}
-          maxLength={MAX_LENGTH}
+          maxLength={MAX_MESSAGE_LENGTH}
           rows={3}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -104,7 +104,7 @@ export function MessageComposer({
                   : "text-fg-muted",
               )}
             >
-              {draft.length}/{MAX_LENGTH}
+              {draft.length}/{MAX_MESSAGE_LENGTH}
             </span>
 
             {isStreaming ? (
