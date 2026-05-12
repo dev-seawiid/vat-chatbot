@@ -1,14 +1,14 @@
 import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
-import { type Citation, toCitations } from "../domain/citation";
-import type { GenerationModel } from "../providers/generation";
-import type { SearchResult } from "../repositories/chunk.repository";
+import { type Citation, toCitations } from "../shared/citation";
+import type { GenerationModel } from "../adapters/generation";
+import type { SearchResult } from "../retrieval/chunk.repository";
+import type { RetrievalService, RetrieveOptions } from "../retrieval/retrieval.service";
 import type {
   MessageRepository,
   SavePairArgs,
-} from "../repositories/message.repository";
+} from "./message.repository";
 import { buildSystemMessage } from "./prompt";
-import type { RetrievalService, RetrieveOptions } from "./retrieval.service";
 import { tools } from "./tools";
 
 export type AskOptions = RetrieveOptions;

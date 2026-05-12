@@ -1,9 +1,9 @@
-import type { EmbedFn } from "../providers/embedding";
+import type { EmbedFn } from "../adapters/embedding";
 import type {
   ChunkRepository,
   SearchFilter,
   SearchResult,
-} from "../repositories/chunk.repository";
+} from "./chunk.repository";
 
 export type RetrieveOptions = {
   k?: number;

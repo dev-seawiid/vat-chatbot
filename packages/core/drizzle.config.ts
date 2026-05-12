@@ -6,7 +6,7 @@ import { defineConfig } from "drizzle-kit";
 // (CLI 진입점이라 본 파일이 직접 로딩 책임을 진다 — 라이브러리 코드는 검증만.)
 
 export default defineConfig({
-  schema: "./src/db/schema.ts",
+  schema: "./src/**/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

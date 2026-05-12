@@ -5,14 +5,14 @@ import {
   partitionKeywords,
   score,
   weighted,
-} from "../domain/eval";
+} from "./scoring";
+import type { AskFn } from "../chat/chat.service";
 import type {
   EvalItem,
   EvalRepository,
   EvalRunRow,
   SaveRunArgs,
-} from "../repositories/eval.repository";
-import type { AskFn } from "./chat.service";
+} from "./eval.repository";
 
 /**
  * 2026-05-07 eval 슬라이스 §7 — eval 도메인 use case. golden.json 한 항목씩 ask로 답을 받아

@@ -1,7 +1,7 @@
 import { cosineDistance, eq, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client";
-import { chunks, documents } from "../db/schema";
+import { chunks, documents } from "./schema";
 
 // spec §2.1 — chunks aggregate에 대한 Repository. Drizzle 객체 + SQL을 외부에 노출하지 않고
 // retrieval service가 본 모듈을 통해서만 query.

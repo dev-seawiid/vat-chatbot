@@ -1,6 +1,6 @@
-import type { Citation } from "../domain/citation";
+import type { Citation } from "../shared/citation";
 import type { Db } from "../db/client";
-import { conversations, messages } from "../db/schema";
+import { conversations, messages } from "./schema";
 
 // spec §3.4 — conversations + messages aggregate에 대한 Repository. chat service가 본 모듈을
 // 통해서만 영속화. transaction 경계는 본 repository가 소유 (turn 단위 원자성 invariant).

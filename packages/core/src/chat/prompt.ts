@@ -1,4 +1,4 @@
-import type { SearchResult } from "../repositories/chunk.repository";
+import type { SearchResult } from "../retrieval/chunk.repository";
 
 // spec §3.3 시스템 프롬프트 — 인용/거절 규칙은 모델 동작의 핵심 invariant.
 // 본문은 spec과 1:1 매칭, 변경 시 spec 동시 갱신.

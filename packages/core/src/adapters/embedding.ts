@@ -1,4 +1,4 @@
-// 임베딩 모델 어댑터. 생성 모델(providers/generation.ts)과 별개 — RAG의 두 모델 역할이
+// 임베딩 모델 어댑터. 생성 모델(adapters/generation.ts)과 별개 — RAG의 두 모델 역할이
 // 섞이지 않도록 파일·타입·팩토리를 분리한다.
 //
 // 생성 모델과 달리 임베딩 모델은 ingest plane(services/ingest-py)이 적재한 벡터와 차원·

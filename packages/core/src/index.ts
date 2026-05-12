@@ -6,19 +6,18 @@ export type {
   AskOptions,
   AskResult,
   ChatService,
-} from "./services/chat.service";
-export type {
-  RetrievalService,
-  RetrieveFn,
-  RetrieveOptions,
-} from "./services/retrieval.service";
-export type { EvalService } from "./services/eval.service";
-
+} from "./chat/chat.service";
+export type { SavePairArgs } from "./chat/message.repository";
+export type { EvalService } from "./eval/eval.service";
 export type {
   SearchFilter,
   SearchOptions,
   SearchResult,
-} from "./repositories/chunk.repository";
-export type { SavePairArgs } from "./repositories/message.repository";
+} from "./retrieval/chunk.repository";
+export type {
+  RetrievalService,
+  RetrieveFn,
+  RetrieveOptions,
+} from "./retrieval/retrieval.service";
 
-export type { Citation } from "./domain/citation";
+export type { Citation } from "./shared/citation";

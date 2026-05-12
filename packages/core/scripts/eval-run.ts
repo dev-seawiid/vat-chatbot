@@ -5,11 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createCore, parseEnv } from "../src";
+import { PROMPT_VERSION } from "../src/chat/prompt";
 import {
   type GoldenSet,
   lintGoldenSet,
-} from "../src/services/eval.service";
-import { PROMPT_VERSION } from "../src/services/prompt";
+} from "../src/eval/eval.service";
 import { THROTTLE_MS, withThrottle } from "./_throttle";
 
 // 2026-05-07 eval 슬라이스 §7 — `pnpm eval:run` CLI 진입.
