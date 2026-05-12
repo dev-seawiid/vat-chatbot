@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from ingest.db.client import connect
+from ingest.db.client import get_sessionmaker
 from ingest.repositories.chunk_repository import (
     count_chunks_by_doc,
     insert_chunks,
@@ -85,7 +85,8 @@ def main() -> int:
     print("-" * 65)
 
     failed = 0
-    with connect() as conn:
+    SessionLocal = get_sessionmaker()
+    with SessionLocal() as session:
         for path in sorted(CHUNKS_DIR.glob("*.json")):
             sid = path.stem
             if target_ids and sid not in target_ids:
@@ -112,7 +113,7 @@ def main() -> int:
             # version은 sources.json의 라벨(spec §3.1 컨벤션, pdf=YYYY-Nq) 직사용 —
             # issued_year 추론은 분기 정보 손실되어 제거.
             doc_uuid = upsert_document(
-                conn,
+                session,
                 title=entry["title"],
                 file_hash=mani["sha256"],
                 source_url=entry.get("url"),
@@ -144,10 +145,10 @@ def main() -> int:
                 continue
 
             # before/after 차이가 실제 신규 적재 수. ON CONFLICT DO NOTHING이라
-            # executemany의 rowcount는 신뢰 불가.
-            before = count_chunks_by_doc(conn, doc_uuid)
-            insert_chunks(conn, rows)
-            after = count_chunks_by_doc(conn, doc_uuid)
+            # SQLAlchemy result.rowcount는 신뢰 불가.
+            before = count_chunks_by_doc(session, doc_uuid)
+            insert_chunks(session, rows)
+            after = count_chunks_by_doc(session, doc_uuid)
             print(f"{sid:<40} {len(chunks):>7} {after - before:>9}")
 
     return 1 if failed else 0

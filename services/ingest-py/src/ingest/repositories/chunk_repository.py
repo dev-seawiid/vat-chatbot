@@ -1,21 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
-from uuid import UUID
 
-import psycopg
-from psycopg.types.json import Json
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
-# 명명 파라미터로 dict-of-row를 그대로 executemany에 넘김 — 호출부는 청크 dict + embedding을
-# 합쳐 한 번에 전달.
-_INSERT_CHUNKS_SQL = """
-INSERT INTO chunks
-    (doc_id, page, section_path, content, content_hash, embedding, metadata)
-VALUES
-    (%(doc_id)s, %(page)s, %(section_path)s, %(content)s, %(content_hash)s,
-     %(embedding)s, %(metadata)s)
-ON CONFLICT (doc_id, content_hash) DO NOTHING;
-"""
+from ingest.db.models import Chunk
 
 
 def _strip_nul(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -29,27 +21,36 @@ def _strip_nul(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def insert_chunks(conn: psycopg.Connection, rows: list[dict[str, Any]]) -> None:
-    """(doc_id, content_hash) 충돌 시 무시 — 동일 doc 안 같은 청크 재적재해도 행 수 변화 없음.
-    rows의 metadata 필드는 plain dict — 함수 내부에서 Json 어댑터로 wrap (psycopg3는 dict→jsonb
-    자동 변환을 안 해줌).
+def _map_to_orm_keys(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """호출자는 DB 컬럼명 그대로 dict를 만들지만, SQLAlchemy declarative base의 `metadata`
+    attribute 충돌 회피로 ORM 속성은 `chunk_metadata`로 매핑돼 있다 — insert().values()에
+    넘기기 전에 키 이름만 바꿔준다(DB 컬럼명은 그대로 'metadata'로 직렬화됨).
     """
-    prepared: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
-        # 입력 dict mutate 방지 — 호출자 쪽에서 같은 dict가 재사용될 수 있음.
         new_r = dict(r)
-        meta = new_r.get("metadata")
-        if isinstance(meta, dict):
-            new_r["metadata"] = Json(meta)
-        prepared.append(new_r)
-    cleaned = _strip_nul(prepared)
-    with conn.cursor() as cur:
-        cur.executemany(_INSERT_CHUNKS_SQL, cleaned)
-    conn.commit()
+        if "metadata" in new_r:
+            new_r["chunk_metadata"] = new_r.pop("metadata")
+        out.append(new_r)
+    return out
 
 
-def count_chunks_by_doc(conn: psycopg.Connection, doc_id: UUID | str) -> int:
-    """ON CONFLICT DO NOTHING은 cur.rowcount가 부정확 — 적재 전후 count 차이로 신규 수 측정용."""
-    with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM chunks WHERE doc_id = %s;", (doc_id,))
-        return cur.fetchone()[0]
+def insert_chunks(session: Session, rows: list[dict[str, Any]]) -> None:
+    """(doc_id, content_hash) 충돌 시 무시 — 동일 doc 안 같은 청크 재적재해도 행 수 변화 없음.
+    SQLAlchemy의 JSONB·Vector 컬럼이 dict/list 자동 직렬화 — 호출자는 plain dict만 전달.
+    """
+    if not rows:
+        return
+    cleaned = _map_to_orm_keys(_strip_nul(rows))
+    stmt = insert(Chunk).values(cleaned).on_conflict_do_nothing(
+        index_elements=["doc_id", "content_hash"]
+    )
+    session.execute(stmt)
+    session.commit()
+
+
+def count_chunks_by_doc(session: Session, doc_id: uuid.UUID | str) -> int:
+    """ON CONFLICT DO NOTHING은 result.rowcount가 부정확 — 적재 전후 count 차이로 신규 수 측정용."""
+    return session.execute(
+        select(func.count()).select_from(Chunk).where(Chunk.doc_id == doc_id)
+    ).scalar_one()

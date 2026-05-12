@@ -1,21 +1,33 @@
 from __future__ import annotations
 
-import psycopg
-from pgvector.psycopg import register_vector
+from functools import lru_cache
+
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from ingest.config import get_settings
 
 
-def connect() -> psycopg.Connection:
-    """로컬·Neon 양쪽에서 안전하게 동작하는 커넥션을 반환."""
-    # Neon은 pgbouncer transaction-mode 풀러 뒤에 있다 — 같은 커넥션이 매 트랜잭션마다
-    # 다른 백엔드에 연결될 수 있어, psycopg가 캐시한 prepared statement가 깨진다.
-    # prepare_threshold=None으로 prepare를 끄면 로컬·Neon 모두에서 안전 (로컬은 손해 없음).
-    conn = psycopg.connect(
-        get_settings().database_url,
-        prepare_threshold=None,
+def _normalize_url(url: str) -> str:
+    """SQLAlchemy 2.0은 driver를 명시해야 psycopg3를 고름. 기본 `postgresql://`은 psycopg2를 찾는다."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
+@lru_cache
+def get_engine() -> Engine:
+    """프로세스당 1회 engine 인스턴스 — connection pool 재사용. Neon pgbouncer transaction-mode
+    풀러 대응으로 prepare_threshold=None을 psycopg3에 전달(prepared statement cache 무효 회피).
+    pgvector adapter는 `pgvector.sqlalchemy.Vector` 컬럼 타입이 자동 핸들 — connection-level
+    register_vector 호출 불필요.
+    """
+    return create_engine(
+        _normalize_url(get_settings().database_url),
+        connect_args={"prepare_threshold": None},
     )
-    # 어댑터 미등록 시 VECTOR 컬럼에 list 바인딩하면 형변환 에러 — 등록하면 list[float] → vector
-    # 자동 매핑되어 호출부가 SQL 문자열 포맷을 직접 만질 필요 없음.
-    register_vector(conn)
-    return conn
+
+
+@lru_cache
+def get_sessionmaker() -> sessionmaker[Session]:
+    return sessionmaker(get_engine(), expire_on_commit=False)

@@ -10,6 +10,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
     "tiktoken>=0.7",
     "voyageai>=0.3",
 ]
