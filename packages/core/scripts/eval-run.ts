@@ -5,8 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createCore, parseEnv } from "../src";
-import { type GoldenSet, lintGoldenSet, runEval } from "../src/eval/runner";
-import { PROMPT_VERSION } from "../src/rag/prompt";
+import {
+  type GoldenSet,
+  lintGoldenSet,
+} from "../src/services/eval.service";
+import { PROMPT_VERSION } from "../src/services/prompt";
 import { THROTTLE_MS, withThrottle } from "./_throttle";
 
 // 2026-05-07 eval 슬라이스 §7 — `pnpm eval:run` CLI 진입.
@@ -111,9 +114,8 @@ async function main(): Promise<void> {
     const total = args.limit ?? set.items.length;
     console.log(`\nrunning ${total} item(s)  k=${args.k}\n`);
 
-    const { runId, summary } = await runEval({
+    const { runId, summary } = await core.evalService.runEval({
       ask,
-      gateway: core.gateway,
       set,
       options: {
         k: args.k,

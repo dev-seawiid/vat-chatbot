@@ -1,10 +1,14 @@
 import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
-import type { SearchResult } from "../db/gateway";
-import type { GenerationModel } from "../providers/generation";
 import { type Citation, toCitations } from "../domain/citation";
+import type { GenerationModel } from "../providers/generation";
+import type { SearchResult } from "../repositories/chunk.repository";
+import type {
+  MessageRepository,
+  SavePairArgs,
+} from "../repositories/message.repository";
 import { buildSystemMessage } from "./prompt";
-import type { RetrieveFn, RetrieveOptions } from "./retrieve";
+import type { RetrievalService, RetrieveOptions } from "./retrieval.service";
 import { tools } from "./tools";
 
 export type AskOptions = RetrieveOptions;
@@ -27,27 +31,32 @@ export type AskResult = {
 
 export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
 
+export type ChatService = ReturnType<typeof createChatService>;
+
 /**
- * spec §3.3 — retrieve로 모은 청크를 [n] 번호로 system 메시지에 끼워넣고 streamText.
- * 사용자 query는 user role 그대로 — context 구분자 escape 없이도 prompt injection 차단.
+ * spec §3.3 — chat 도메인 use case. ask(질문 → stream + citations)와 recordChatTurn(영속화)을
+ * 묶는다. controller(apps/web route handler, eval CLI)는 본 service만 호출하고 repository를
+ * 직접 보지 않는다.
+ *
+ * ask는 retrieval service로 청크를 모은 뒤 [n] 번호로 system 메시지에 끼워 streamText.
  * tool-call 라운드트립을 허용하도록 stopWhen=stepCountIs(5) — calc_vat 후 답변 생성까지.
- * messages 영속화는 호출자(api/chat 또는 CLI) 책임 — 본 함수는 순수 합성만.
  */
-export function createAsk({
-  retrieve,
-  generationModel,
-  telemetry,
-}: {
-  retrieve: RetrieveFn;
+export function createChatService(deps: {
+  retrieval: RetrievalService;
   generationModel: GenerationModel;
+  messageRepo: MessageRepository;
   /** AI SDK telemetry settings — undefined면 spans 미발생. 켤지 여부와 functionId는 composition
    *  root가 결정한다(라이브러리는 OTEL 부팅 상태를 모르므로 enable 결정권 없음). */
   telemetry?: TelemetrySettings;
-}): AskFn {
+}) {
+  const { retrieval, generationModel, messageRepo, telemetry } = deps;
   const { model, modelId } = generationModel;
 
-  return async (query, opts = {}) => {
-    const chunks = await retrieve(query, { k: opts.k, filter: opts.filter });
+  const ask: AskFn = async (query, opts = {}) => {
+    const chunks = await retrieval.retrieve(query, {
+      k: opts.k,
+      filter: opts.filter,
+    });
     const citations = toCitations(chunks);
 
     const result = streamText({
@@ -71,5 +80,12 @@ export function createAsk({
     })();
 
     return { textStream: result.textStream, chunks, citations, finish };
+  };
+
+  return {
+    ask,
+    async recordChatTurn(args: SavePairArgs): Promise<void> {
+      await messageRepo.savePair(args);
+    },
   };
 }

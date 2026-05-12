@@ -1,5 +1,3 @@
-import type { EvalItem, Gateway, SaveRunArgs } from "../db/gateway";
-import type { AskFn } from "../rag/ask";
 import {
   type AxisScores,
   type GoldenItem,
@@ -8,11 +6,18 @@ import {
   score,
   weighted,
 } from "../domain/eval";
+import type {
+  EvalItem,
+  EvalRepository,
+  EvalRunRow,
+  SaveRunArgs,
+} from "../repositories/eval.repository";
+import type { AskFn } from "./chat.service";
 
 /**
- * 2026-05-07 eval 슬라이스 §7 — golden.json 한 항목씩 ask로 답을 받아 score를 매기고
- * 결과를 eval_runs.results / .summary 형태로 정규화. CLI 진입점은 scripts/eval-run.ts에서
- * 본 모듈을 import해 사용한다.
+ * 2026-05-07 eval 슬라이스 §7 — eval 도메인 use case. golden.json 한 항목씩 ask로 답을 받아
+ * score를 매기고 결과를 eval_runs.results / .summary 형태로 정규화. CLI(scripts/eval-run.ts)는
+ * 본 service만 호출하고 repository를 직접 보지 않는다.
  */
 
 // golden.json 루트 — version은 eval_runs.goldensetVersion에 박제, items는 채점 단위.
@@ -53,6 +58,7 @@ export type LintResult = { ok: boolean; errors: string[] };
 /**
  * spec §1.3 invariant — 카테고리/tax_type/난이도 분포, id 유니크, source_id 정합성을
  * golden.json에서 직접 검사. 호출자는 ok=false면 exit 1로 막아 commit 전 검출.
+ * 순수 함수라 service factory와 무관하게 단독 export.
  */
 export function lintGoldenSet(
   set: GoldenSet,
@@ -251,57 +257,84 @@ export type RunnerOptions = {
   limit?: number;
 };
 
+export type EvalService = ReturnType<typeof createEvalService>;
+
 /**
- * 본 슬라이스의 메인 흐름 — eval_items upsert → 항목 직렬 실행 → summarize → saveRun.
- * 직렬 실행은 토이 규모(30문항) + rate limit/디버깅 우위. 병렬화는 v2.
+ * eval domain service — repository 위임 + runEval composite. ask는 deps가 아니라 runEval 인자로
+ * 받는다(throttle 등 CLI 정책을 호출자가 결정). saveRun/listRuns/upsertItems는 controller가
+ * repository를 직접 import하지 못하게 service 경유를 강제.
  */
-export async function runEval(args: {
-  ask: AskFn;
-  gateway: Gateway;
-  set: GoldenSet;
-  options: RunnerOptions;
-  onItem?: (entry: EvalResultEntry, idx: number, total: number) => void;
-}): Promise<{
-  runId: string;
-  results: EvalResultEntry[];
-  summary: EvalSummary;
-}> {
-  const { ask, gateway, set, options, onItem } = args;
+export function createEvalService(deps: { evalRepo: EvalRepository }) {
+  const { evalRepo } = deps;
 
-  const evalItemRows: EvalItem[] = set.items.map((it) => ({
-    id: it.id,
-    question: it.question,
-    expectedKeywords: it.expectedKeywords,
-    expectedCitationDoc: it.expectedCitationDoc,
-    category: it.category,
-    difficulty: it.difficulty,
-    taxType: it.taxType,
-  }));
-  await gateway.evalItems.upsert(evalItemRows);
+  return {
+    /**
+     * 본 슬라이스의 메인 흐름 — eval_items upsert → 항목 직렬 실행 → summarize → saveRun.
+     * 직렬 실행은 토이 규모(30문항) + rate limit/디버깅 우위. 병렬화는 v2.
+     * ask는 호출자가 주입 — 보통 throttle 래핑된 chat service의 ask.
+     */
+    async runEval(args: {
+      ask: AskFn;
+      set: GoldenSet;
+      options: RunnerOptions;
+      onItem?: (entry: EvalResultEntry, idx: number, total: number) => void;
+    }): Promise<{
+      runId: string;
+      results: EvalResultEntry[];
+      summary: EvalSummary;
+    }> {
+      const { ask, set, options, onItem } = args;
 
-  const items = options.limit ? set.items.slice(0, options.limit) : set.items;
-  const results: EvalResultEntry[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const entry = await runOne(ask, items[i], options.k);
-    results.push(entry);
-    onItem?.(entry, i, items.length);
-  }
+      const evalItemRows: EvalItem[] = set.items.map((it) => ({
+        id: it.id,
+        question: it.question,
+        expectedKeywords: it.expectedKeywords,
+        expectedCitationDoc: it.expectedCitationDoc,
+        category: it.category,
+        difficulty: it.difficulty,
+        taxType: it.taxType,
+      }));
+      await evalRepo.upsertItems(evalItemRows);
 
-  const summary = summarize(results, items);
+      const items = options.limit
+        ? set.items.slice(0, options.limit)
+        : set.items;
+      const results: EvalResultEntry[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = await runOne(ask, items[i], options.k);
+        results.push(entry);
+        onItem?.(entry, i, items.length);
+      }
 
-  // 실제 호출에서 사용된 모델 — generate.ts가 ResolvedModel.modelId로 박제한 값.
-  const usedModel = results[0]?.model ?? "(none)";
+      const summary = summarize(results, items);
 
-  const saveArgs: SaveRunArgs = {
-    model: usedModel,
-    embeddingModel: options.embeddingModel,
-    retrievalK: options.k,
-    promptVersion: options.promptVersion,
-    goldensetVersion: options.goldensetVersion,
-    results,
-    summary,
+      // 실제 호출에서 사용된 모델 — generate.ts가 ResolvedModel.modelId로 박제한 값.
+      const usedModel = results[0]?.model ?? "(none)";
+
+      const saveArgs: SaveRunArgs = {
+        model: usedModel,
+        embeddingModel: options.embeddingModel,
+        retrievalK: options.k,
+        promptVersion: options.promptVersion,
+        goldensetVersion: options.goldensetVersion,
+        results,
+        summary,
+      };
+      const runId = await evalRepo.saveRun(saveArgs);
+
+      return { runId, results, summary };
+    },
+
+    async saveRun(args: SaveRunArgs): Promise<string> {
+      return evalRepo.saveRun(args);
+    },
+
+    async listRuns(limit = 20): Promise<EvalRunRow[]> {
+      return evalRepo.listRuns(limit);
+    },
+
+    async upsertItems(items: EvalItem[]): Promise<void> {
+      return evalRepo.upsertItems(items);
+    },
   };
-  const runId = await gateway.eval.saveRun(saveArgs);
-
-  return { runId, results, summary };
 }
