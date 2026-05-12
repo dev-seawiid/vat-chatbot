@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 import voyageai
 
-from ingest.config import get_settings
+from ingest.shared.config import get_settings
 
 # voyage-3 spec: batch당 최대 1000건/120K 토큰. 스펙 §1.1 기준 128로 보수적 설정 —
 # 평균 청크 ~500토큰 × 128 ≈ 64K 토큰으로 한도 절반.

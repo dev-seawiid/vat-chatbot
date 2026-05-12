@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 import re
 from collections import Counter
 from pathlib import Path
 
 import pdfplumber
 
-from ingest.schemas import ExtractResult, Section
+from ingest.extract.dto import ExtractResult, Section
 
 # 목차 라인 패턴: 점선/가운뎃점/말줄임표 + 페이지 번호로 끝나는 형태.
 # 국세청 매뉴얼 목차 줄이 "1. 부가가치세 신고와 납부 ··················· 2" 식이라 본문과 구별됨.

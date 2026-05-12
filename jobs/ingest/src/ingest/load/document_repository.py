@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ingest.db.models import Document
+from ingest.load.db.models import Document
 
 
 def upsert_document(

@@ -1,18 +1,17 @@
-from __future__ import annotations
-
 import hashlib
 import json
-import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import httpx
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SOURCES_PATH = REPO_ROOT / "data" / "sources.json"
-CACHE_DIR = REPO_ROOT / ".cache" / "pdfs"
-MANIFEST_PATH = CACHE_DIR / "manifest.json"
+from ingest.shared.paths import (
+    MANIFEST_JSON,
+    PDFS_DIR,
+    SOURCES_JSON,
+    make_arg_parser,
+    print_table,
+    require_path,
+)
 
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 
@@ -28,14 +27,14 @@ class FetchResult:
 
 
 def load_manifest() -> dict:
-    if MANIFEST_PATH.exists():
-        return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    if MANIFEST_JSON.exists():
+        return json.loads(MANIFEST_JSON.read_text(encoding="utf-8"))
     return {}
 
 
 def save_manifest(manifest: dict) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.write_text(
+    PDFS_DIR.mkdir(parents=True, exist_ok=True)
+    MANIFEST_JSON.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -59,7 +58,7 @@ def fetch_one(client: httpx.Client, entry: dict, manifest: dict) -> FetchResult:
         return FetchResult(sid, title, "error", error=str(exc))
 
     if r.status_code == 304 and prev.get("sha256"):
-        cached = CACHE_DIR / f"{prev['sha256']}.pdf"
+        cached = PDFS_DIR / f"{prev['sha256']}.pdf"
         if cached.exists():
             return FetchResult(sid, title, "cached", prev["sha256"], prev.get("size"))
 
@@ -68,7 +67,7 @@ def fetch_one(client: httpx.Client, entry: dict, manifest: dict) -> FetchResult:
 
     body = r.content
     sha = hashlib.sha256(body).hexdigest()
-    out = CACHE_DIR / f"{sha}.pdf"
+    out = PDFS_DIR / f"{sha}.pdf"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not out.exists():
         out.write_bytes(body)
@@ -86,27 +85,29 @@ def fetch_one(client: httpx.Client, entry: dict, manifest: dict) -> FetchResult:
     return FetchResult(sid, title, status, sha, len(body))
 
 
-def print_table(results: list[FetchResult]) -> None:
-    print()
-    print(f"{'ID':<32} {'STATUS':<10} {'SIZE':>12}  TITLE")
-    print("-" * 100)
+def _report(results: list[FetchResult]) -> None:
+    rows: list[list[str]] = []
     for r in results:
         size = f"{r.size:,}" if r.size is not None else "-"
         sha_short = r.sha256[:8] if r.sha256 else ""
-        line = f"{r.id:<32} {r.status:<10} {size:>12}  {r.title}"
+        title = r.title
         if sha_short:
-            line += f"  [{sha_short}]"
+            title += f"  [{sha_short}]"
         if r.error:
-            line += f"  ! {r.error}"
-        print(line)
+            title += f"  ! {r.error}"
+        rows.append([r.id, r.status, size, title])
+    print_table(
+        headers=["ID", "STATUS", "SIZE", "TITLE"],
+        rows=rows,
+        widths=[32, 10, -12, 50],
+    )
 
 
 def main() -> int:
-    if not SOURCES_PATH.exists():
-        print(f"ERROR: {SOURCES_PATH} not found", file=sys.stderr)
-        return 1
+    make_arg_parser("Fetch PDF sources into local cache").parse_args()
+    require_path(SOURCES_JSON)
 
-    sources = json.loads(SOURCES_PATH.read_text(encoding="utf-8"))
+    sources = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
     pdfs = sources.get("pdfs", [])
     if not pdfs:
         print("No pdf entries in sources.json")
@@ -121,7 +122,7 @@ def main() -> int:
             if res.status in ("fetched", "unchanged"):
                 save_manifest(manifest)
 
-    print_table(results)
+    _report(results)
     failed = sum(1 for r in results if r.status == "error")
     return 1 if failed else 0
 

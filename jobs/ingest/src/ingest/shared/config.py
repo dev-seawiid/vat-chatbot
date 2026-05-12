@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 각 plane은 자기 .env만 본다 — apps/web/Next.js·packages/core·services/ingest-py가
+# 각 plane은 자기 .env만 본다 — apps/web/Next.js·packages/core·jobs/ingest가
 # 각자 자기 디렉토리의 .env로 컨트랙트를 표현. 본 service는 Voyage 임베딩 + DB 적재만
 # 쓰고 Gemini 키는 사용하지 않으므로 응답 plane과 키가 다르다.
-# parents: [0]=ingest, [1]=src, [2]=ingest-py 루트.
-_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+# parents: [0]=shared, [1]=ingest, [2]=src, [3]=jobs/ingest 루트.
+_SERVICE_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):

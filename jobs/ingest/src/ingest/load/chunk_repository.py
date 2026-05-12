@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import uuid
 from typing import Any
 
@@ -7,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from ingest.db.models import Chunk
+from ingest.load.db.models import Chunk
 
 
 def _strip_nul(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

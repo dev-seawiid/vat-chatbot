@@ -1,14 +1,15 @@
-from __future__ import annotations
-
 import json
-import sys
 from pathlib import Path
 
-from ingest.embed import embed_documents
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-CHUNKS_DIR = REPO_ROOT / ".cache" / "chunks"
-OUT_DIR = REPO_ROOT / ".cache" / "embeddings"
+from ingest.embedding.embedder import embed_documents
+from ingest.shared.paths import (
+    CHUNKS_DIR,
+    EMBEDDINGS_DIR,
+    REPO_ROOT,
+    make_arg_parser,
+    print_table,
+    require_path,
+)
 
 
 def _load_existing(path: Path) -> dict[str, list[float]]:
@@ -19,19 +20,13 @@ def _load_existing(path: Path) -> dict[str, list[float]]:
 
 
 def main() -> int:
-    if not CHUNKS_DIR.exists():
-        print(
-            f"ERROR: {CHUNKS_DIR} not found — run chunk_pdfs.py first",
-            file=sys.stderr,
-        )
-        return 1
+    args = make_arg_parser("Embed chunks with voyage-3 (content_hash 캐시 재사용)").parse_args()
+    require_path(CHUNKS_DIR, hint="run chunk_pdfs.py first")
 
-    target_ids = set(sys.argv[1:])
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    target_ids = set(args.ids)
+    EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n{'ID':<40} {'CHUNKS':>7} {'NEW':>5} {'CACHED':>7}  OUT")
-    print("-" * 95)
-
+    rows: list[list[str]] = []
     failed = 0
     for path in sorted(CHUNKS_DIR.glob("*.json")):
         sid = path.stem
@@ -40,12 +35,12 @@ def main() -> int:
 
         try:
             chunks = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(f"{sid:<40} ! {exc}")
+        except json.JSONDecodeError as exc:
+            rows.append([sid, "-", "-", "-", f"! {exc}"])
             failed += 1
             continue
 
-        out_path = OUT_DIR / f"{sid}.json"
+        out_path = EMBEDDINGS_DIR / f"{sid}.json"
         cached = _load_existing(out_path)
 
         # content_hash 미스인 청크만 재호출 — 동일 텍스트 재실행 시 API 비용 0.
@@ -55,31 +50,43 @@ def main() -> int:
         to_embed_texts = [chunks[i]["content"] for i in to_embed_idx]
 
         if to_embed_texts:
+            # voyage SDK가 던지는 예외 클래스가 외부 의존이라 narrow type을 import할 가치
+            # 낮음(SDK 버전 따라 다름). 광범위 catch + 메시지 노출이 실용 trade-off.
             try:
                 vectors = embed_documents(to_embed_texts)
             except Exception as exc:
-                print(f"{sid:<40} ! {exc}")
+                rows.append([sid, "-", "-", "-", f"! {exc}"])
                 failed += 1
                 continue
             for idx, vec in zip(to_embed_idx, vectors):
                 cached[chunks[idx]["content_hash"]] = vec
 
         # 청크 순서 유지하며 저장. indent 없이 압축 저장 — 1024-dim × 수천 행은 가독성보다 용량.
-        rows = [
+        out_rows = [
             {"content_hash": c["content_hash"], "embedding": cached[c["content_hash"]]}
             for c in chunks
         ]
         out_path.write_text(
-            json.dumps(rows, ensure_ascii=False) + "\n",
+            json.dumps(out_rows, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 
-        rel = out_path.relative_to(REPO_ROOT)
-        print(
-            f"{sid:<40} {len(chunks):>7} {len(to_embed_texts):>5}"
-            f" {len(chunks) - len(to_embed_texts):>7}  {rel}"
+        rel = str(out_path.relative_to(REPO_ROOT))
+        rows.append(
+            [
+                sid,
+                str(len(chunks)),
+                str(len(to_embed_texts)),
+                str(len(chunks) - len(to_embed_texts)),
+                rel,
+            ]
         )
 
+    print_table(
+        headers=["ID", "CHUNKS", "NEW", "CACHED", "OUT"],
+        rows=rows,
+        widths=[40, -7, -5, -7, 40],
+    )
     return 1 if failed else 0
 
 

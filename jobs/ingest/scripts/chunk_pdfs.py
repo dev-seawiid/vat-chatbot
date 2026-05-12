@@ -1,33 +1,31 @@
-from __future__ import annotations
-
 import json
-import sys
-from pathlib import Path
 
-from ingest.chunk import DEFAULT_MAX_TOKENS, DEFAULT_OVERLAP, chunk_extract_result
-from ingest.schemas import ExtractResult
+from pydantic import ValidationError
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-EXTRACTED_DIR = REPO_ROOT / ".cache" / "extracted"
-OUT_DIR = REPO_ROOT / ".cache" / "chunks"
+from ingest.chunking.chunker import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_OVERLAP,
+    chunk_extract_result,
+)
+from ingest.shared.paths import (
+    CHUNKS_DIR,
+    EXTRACTED_DIR,
+    REPO_ROOT,
+    make_arg_parser,
+    print_table,
+    require_path,
+)
+from ingest.extract.dto import ExtractResult
 
 
 def main() -> int:
-    if not EXTRACTED_DIR.exists():
-        print(
-            f"ERROR: {EXTRACTED_DIR} not found — run extract_pdfs.py first",
-            file=sys.stderr,
-        )
-        return 1
+    args = make_arg_parser("Chunk extracted sections into token-bounded pieces").parse_args()
+    require_path(EXTRACTED_DIR, hint="run extract_pdfs.py first")
 
-    target_ids = set(sys.argv[1:])
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    target_ids = set(args.ids)
+    CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(
-        f"\n{'ID':<40} {'SECTIONS':>9} {'CHUNKS':>7} {'AVG_TOK':>8} {'MAX_TOK':>8}  OUT"
-    )
-    print("-" * 110)
-
+    rows: list[list[str]] = []
     failed = 0
     for path in sorted(EXTRACTED_DIR.glob("*.json")):
         sid = path.stem
@@ -36,8 +34,8 @@ def main() -> int:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             result = ExtractResult.model_validate(data)
-        except Exception as exc:
-            print(f"{sid:<40} ! {exc}")
+        except (json.JSONDecodeError, ValidationError) as exc:
+            rows.append([sid, "-", "-", "-", "-", f"! {exc}"])
             failed += 1
             continue
 
@@ -55,7 +53,7 @@ def main() -> int:
         else:
             avg = mx = 0
 
-        out_path = OUT_DIR / f"{sid}.json"
+        out_path = CHUNKS_DIR / f"{sid}.json"
         out_path.write_text(
             json.dumps(
                 [c.model_dump() for c in chunks],
@@ -65,11 +63,16 @@ def main() -> int:
             + "\n",
             encoding="utf-8",
         )
-        rel = out_path.relative_to(REPO_ROOT)
-        print(
-            f"{sid:<40} {len(result.sections):>9} {len(chunks):>7} {avg:>8} {mx:>8}  {rel}"
+        rel = str(out_path.relative_to(REPO_ROOT))
+        rows.append(
+            [sid, str(len(result.sections)), str(len(chunks)), str(avg), str(mx), rel]
         )
 
+    print_table(
+        headers=["ID", "SECTIONS", "CHUNKS", "AVG_TOK", "MAX_TOK", "OUT"],
+        rows=rows,
+        widths=[40, -9, -7, -8, -8, 40],
+    )
     return 1 if failed else 0
 
 

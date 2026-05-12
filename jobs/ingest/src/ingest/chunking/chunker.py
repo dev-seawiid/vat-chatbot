@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 import hashlib
 
 import tiktoken
 
-from ingest.schemas import Chunk, ExtractResult, Section
+from ingest.chunking.dto import ChunkDTO
+from ingest.extract.dto import ExtractResult, Section
 
 # voyage 전용 토크나이저는 비공개라 OpenAI cl100k_base를 예산용으로 차용.
 # 실제 임베딩 토큰 수와 정확히 일치하진 않으나 청크 크기 일관성에는 충분.
@@ -109,15 +108,15 @@ def chunk_section(
     doc_id: str,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     overlap: int = DEFAULT_OVERLAP,
-) -> list[Chunk]:
+) -> list[ChunkDTO]:
     pieces = chunk_text(section.content, max_tokens=max_tokens, overlap=overlap)
-    out: list[Chunk] = []
+    out: list[ChunkDTO] = []
     for ordinal, piece in enumerate(pieces):
         # 섹션 헤딩을 청크 본문 앞에 1줄 prepend — 임베딩에 위치/주제 단서를 추가한다.
         # citation·메타에는 별도로 anchor/page가 있으니 컨텐츠 복제로 인한 손실 없음.
         body = f"# {section.heading}\n\n{piece.strip()}"
         out.append(
-            Chunk(
+            ChunkDTO(
                 doc_id=doc_id,
                 section_ordinal=section.ordinal,
                 chunk_ordinal=ordinal,
@@ -136,8 +135,8 @@ def chunk_extract_result(
     result: ExtractResult,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     overlap: int = DEFAULT_OVERLAP,
-) -> list[Chunk]:
-    chunks: list[Chunk] = []
+) -> list[ChunkDTO]:
+    chunks: list[ChunkDTO] = []
     for section in result.sections:
         chunks.extend(
             chunk_section(

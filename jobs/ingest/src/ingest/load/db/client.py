@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from ingest.config import get_settings
+from ingest.shared.config import get_settings
 
 
 def _normalize_url(url: str) -> str:
