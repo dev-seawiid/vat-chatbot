@@ -10,7 +10,7 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
-import type { Citation } from "../rag/citation";
+import type { Citation } from "../domain/citation";
 
 export const documents = pgTable("documents", {
   id: uuid().primaryKey().defaultRandom(),

@@ -7,7 +7,7 @@ import {
   partitionKeywords,
   score,
   weighted,
-} from "./score";
+} from "../domain/eval";
 
 /**
  * 2026-05-07 eval 슬라이스 §7 — golden.json 한 항목씩 ask로 답을 받아 score를 매기고

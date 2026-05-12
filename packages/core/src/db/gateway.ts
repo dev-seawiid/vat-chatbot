@@ -1,6 +1,6 @@
 import { cosineDistance, desc, eq, sql } from "drizzle-orm";
 
-import type { Citation } from "../rag/citation";
+import type { Citation } from "../domain/citation";
 import type { Db } from "./client";
 import { chunks, conversations, documents, evalItems, evalRuns, messages } from "./schema";
 

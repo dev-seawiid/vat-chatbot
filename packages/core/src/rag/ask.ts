@@ -2,7 +2,7 @@ import { stepCountIs, streamText, type TelemetrySettings } from "ai";
 
 import type { SearchResult } from "../db/gateway";
 import type { GenerationModel } from "../providers/generation";
-import { type Citation, toCitations } from "./citation";
+import { type Citation, toCitations } from "../domain/citation";
 import { buildSystemMessage } from "./prompt";
 import type { RetrieveFn, RetrieveOptions } from "./retrieve";
 import { tools } from "./tools";

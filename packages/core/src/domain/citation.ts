@@ -1,5 +1,3 @@
-import type { SearchResult } from "../db/gateway";
-
 // spec §3.4 인용 객체 — 도메인 타입. retrieve 결과 → UI 표시 + jsonb 영속화 둘 다에 쓰인다.
 // 필드명은 도메인 표준인 camelCase. messages.citations jsonb 컬럼도 같은 형태로 저장돼
 // write/read 변환 layer 없이 도메인 객체가 곧 저장 형태(단일 진실 소스).
@@ -20,10 +18,24 @@ export type Citation = {
   snippet: string;
 };
 
+// 변환 input은 structural type — repository의 SearchResult가 본 모양을 만족하므로
+// domain → repositories 역방향 의존을 만들지 않는다.
+type ChunkLike = {
+  chunkId: string;
+  docId: string;
+  sourceId: string;
+  docTitle: string;
+  docVersion: string | null;
+  sourceUrl: string | null;
+  page: number | null;
+  sectionPath: string | null;
+  content: string;
+};
+
 // snippet은 모달 미리보기용으로 짧게 자른다(전체 content는 chunks 테이블에 이미 있음).
 const SNIPPET_MAX = 240;
 
-export function toCitation(chunk: SearchResult): Citation {
+export function toCitation(chunk: ChunkLike): Citation {
   const snippet = chunk.content.replace(/\s+/g, " ").trim();
   return {
     chunkId: chunk.chunkId,
@@ -39,6 +51,6 @@ export function toCitation(chunk: SearchResult): Citation {
   };
 }
 
-export function toCitations(chunks: SearchResult[]): Citation[] {
+export function toCitations(chunks: ChunkLike[]): Citation[] {
   return chunks.map(toCitation);
 }
