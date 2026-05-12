@@ -4,61 +4,7 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
-from pgvector.psycopg import register_vector
 from psycopg.types.json import Json
-
-from ingest.config import get_settings
-
-
-def connect() -> psycopg.Connection:
-    """로컬·Neon 양쪽에서 안전하게 동작하는 커넥션을 반환."""
-    # Neon은 pgbouncer transaction-mode 풀러 뒤에 있다 — 같은 커넥션이 매 트랜잭션마다
-    # 다른 백엔드에 연결될 수 있어, psycopg가 캐시한 prepared statement가 깨진다.
-    # prepare_threshold=None으로 prepare를 끄면 로컬·Neon 모두에서 안전 (로컬은 손해 없음).
-    conn = psycopg.connect(
-        get_settings().database_url,
-        prepare_threshold=None,
-    )
-    # 어댑터 미등록 시 VECTOR 컬럼에 list 바인딩하면 형변환 에러 — 등록하면 list[float] → vector
-    # 자동 매핑되어 호출부가 SQL 문자열 포맷을 직접 만질 필요 없음.
-    register_vector(conn)
-    return conn
-
-
-# documents -----------------------------------------------------------------
-
-
-def upsert_document(
-    conn: psycopg.Connection,
-    *,
-    title: str,
-    file_hash: str,
-    source_url: str | None = None,
-    version: str | None = None,
-) -> UUID:
-    """file_hash 기반 멱등 — 같은 파일을 두 번 ingest해도 documents 한 행만 유지(spec §3.1).
-    있으면 그 id를, 없으면 INSERT 후 새 id를 반환. 동일 file_hash로 title/version 갱신은
-    무시 — 파일 내용이 같으면 문서도 같다는 invariant 유지(변경됐으면 새 file_hash).
-    """
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM documents WHERE file_hash = %s;", (file_hash,))
-        row = cur.fetchone()
-        if row:
-            return row[0]
-        cur.execute(
-            """
-            INSERT INTO documents (title, source_url, version, file_hash)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id;
-            """,
-            (title, source_url, version, file_hash),
-        )
-        new_id = cur.fetchone()[0]
-    conn.commit()
-    return new_id
-
-
-# chunks --------------------------------------------------------------------
 
 # 명명 파라미터로 dict-of-row를 그대로 executemany에 넘김 — 호출부는 청크 dict + embedding을
 # 합쳐 한 번에 전달.

@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from ingest.gateway import (
-    connect,
+from ingest.db.client import connect
+from ingest.repositories.chunk_repository import (
     count_chunks_by_doc,
     insert_chunks,
-    upsert_document,
 )
+from ingest.repositories.document_repository import upsert_document
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SOURCES_PATH = REPO_ROOT / "data" / "sources.json"
