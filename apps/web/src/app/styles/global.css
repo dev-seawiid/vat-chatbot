@@ -65,6 +65,12 @@
   --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
   --animate-marquee: marquee var(--duration) infinite linear;
   --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  /* Radix data-[state]:* modifier로 쓰이는 4종 — Tailwind utility로 등록되어야
+     modifier-wrapped 셀렉터가 컴파일된다. raw .animate-* CSS는 modifier와 결합 X. */
+  --animate-fade-in: fade-in 200ms ease-out forwards;
+  --animate-fade-out: fade-out 160ms ease-in forwards;
+  --animate-slide-in-right: slide-in-right 360ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+  --animate-slide-out-right: slide-out-right 240ms cubic-bezier(0.4, 0, 1, 1) forwards;
   @keyframes aurora {
   0% {
     background-position: 0% 50%;
@@ -361,18 +367,6 @@
   .animate-fade-up {
     animation: fade-up 520ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
   }
-  .animate-fade-in {
-    animation: fade-in 200ms ease-out forwards;
-  }
-  .animate-fade-out {
-    animation: fade-out 160ms ease-in forwards;
-  }
-  .animate-slide-in-right {
-    animation: slide-in-right 360ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
-  }
-  .animate-slide-out-right {
-    animation: slide-out-right 240ms cubic-bezier(0.4, 0, 1, 1) forwards;
-  }
   .animate-caret-blink {
     animation: caret-blink 1.05s step-end infinite;
   }
@@ -437,7 +431,7 @@
 @keyframes slide-in-right {
   from {
     opacity: 0;
-    transform: translateX(28px);
+    transform: translateX(100%);
   }
   to {
     opacity: 1;
@@ -452,7 +446,7 @@
   }
   to {
     opacity: 0;
-    transform: translateX(28px);
+    transform: translateX(100%);
   }
 }
 
