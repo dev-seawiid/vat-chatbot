@@ -41,8 +41,35 @@ const REPO_ROOT = resolve(HERE, "../../..");
 const GOLDEN_PATH = resolve(REPO_ROOT, "data/eval/golden.json");
 const SOURCES_PATH = resolve(REPO_ROOT, "data/sources.json");
 
+// golden.json은 spec §4.4 컨벤션상 snake_case 그대로(사람이 작성하는 외부 JSON).
+// boundary loader가 도메인 표면 camelCase로 변환 — core 내부는 GoldenSet/GoldenItem만 보면 된다.
+type RawGoldenSet = {
+  version: string;
+  items: Array<{
+    id: string;
+    question: string;
+    expected_keywords: string[];
+    expected_citation_doc: string;
+    category: string;
+    difficulty: "easy" | "medium" | "hard";
+    tax_type: string;
+  }>;
+};
+
 function loadGolden(): GoldenSet {
-  return JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenSet;
+  const raw = JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as RawGoldenSet;
+  return {
+    version: raw.version,
+    items: raw.items.map((it) => ({
+      id: it.id,
+      question: it.question,
+      expectedKeywords: it.expected_keywords,
+      expectedCitationDoc: it.expected_citation_doc,
+      category: it.category,
+      difficulty: it.difficulty,
+      taxType: it.tax_type,
+    })),
+  };
 }
 
 function loadValidSourceIds(): Set<string> {
@@ -99,22 +126,22 @@ async function main(): Promise<void> {
         const sym =
           entry.weighted >= 0.7 ? "✓" : entry.weighted >= 0.5 ? "·" : "✗";
         console.log(
-          `  [${idx + 1}/${n}] ${sym} ${entry.id}  w=${entry.weighted.toFixed(3)}  kr=${fmtPct(entry.scores.keyword_recall)}  cp=${entry.scores.citation_present}  cc=${entry.scores.citation_correct}  nh=${entry.scores.no_hallucination}  (${entry.latency_ms}ms)`,
+          `  [${idx + 1}/${n}] ${sym} ${entry.id}  w=${entry.weighted.toFixed(3)}  kr=${fmtPct(entry.scores.keywordRecall)}  cp=${entry.scores.citationPresent}  cc=${entry.scores.citationCorrect}  nh=${entry.scores.noHallucination}  (${entry.latencyMs}ms)`,
         );
       },
     });
 
     console.log(`\n--- summary (run ${runId}) ---`);
-    console.log(`weighted_avg     : ${fmtPct(summary.weighted_avg)}`);
-    console.log(`keyword_recall   : ${fmtPct(summary.axes.keyword_recall)}`);
-    console.log(`citation_present : ${fmtPct(summary.axes.citation_present)}`);
-    console.log(`citation_correct : ${fmtPct(summary.axes.citation_correct)}`);
-    console.log(`no_hallucination : ${fmtPct(summary.axes.no_hallucination)}`);
+    console.log(`weightedAvg      : ${fmtPct(summary.weightedAvg)}`);
+    console.log(`keywordRecall    : ${fmtPct(summary.axes.keywordRecall)}`);
+    console.log(`citationPresent  : ${fmtPct(summary.axes.citationPresent)}`);
+    console.log(`citationCorrect  : ${fmtPct(summary.axes.citationCorrect)}`);
+    console.log(`noHallucination  : ${fmtPct(summary.axes.noHallucination)}`);
     console.log(
-      `latency p50/p95  : ${summary.totals.latency_ms_p50}ms / ${summary.totals.latency_ms_p95}ms`,
+      `latency p50/p95  : ${summary.totals.latencyMsP50}ms / ${summary.totals.latencyMsP95}ms`,
     );
     console.log(
-      `tokens in/out    : ${summary.totals.input_tokens_sum} / ${summary.totals.output_tokens_sum}`,
+      `tokens in/out    : ${summary.totals.inputTokensSum} / ${summary.totals.outputTokensSum}`,
     );
     console.log(
       `failures (<0.5)  : ${summary.failures.length === 0 ? "none" : summary.failures.join(", ")}`,

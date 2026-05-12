@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   try {
     const { query, taxType, k } = parseArgs(process.argv.slice(2));
-    const filter = taxType ? { tax_type: taxType } : undefined;
+    const filter = taxType ? { taxType } : undefined;
 
     console.log(`\nQuery   : ${query}`);
     console.log(`k       : ${k}`);
@@ -56,10 +56,10 @@ async function main(): Promise<void> {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       console.log(
-        `[${i + 1}] sim=${r.similarity.toFixed(3)}  ver=${r.doc_version ?? "-"}  page=${r.page ?? "-"}`,
+        `[${i + 1}] sim=${r.similarity.toFixed(3)}  ver=${r.docVersion ?? "-"}  page=${r.page ?? "-"}`,
       );
-      console.log(`    ${r.doc_title}`);
-      console.log(`    ${r.section_path ?? "-"}`);
+      console.log(`    ${r.docTitle}`);
+      console.log(`    ${r.sectionPath ?? "-"}`);
       console.log(`    ${preview(r.content)}\n`);
     }
   } finally {

@@ -1,17 +1,17 @@
-import { desc, sql } from "drizzle-orm";
+import { cosineDistance, desc, eq, sql } from "drizzle-orm";
 
 import type { Citation } from "../rag/citation";
 import type { Db } from "./client";
-import { conversations, evalItems, evalRuns, messages } from "./schema";
+import { chunks, conversations, documents, evalItems, evalRuns, messages } from "./schema";
 
 // spec §2.1 인터페이스 — TS plane DB 진입점. 도메인별 namespace로 묶어
 // 소비자(`apps/web` route handler/CLI)가 drizzle 객체를 직접 import하지 않도록 통제한다.
 // W2: chunks.search, W3: messages.savePair (apps/web 영속화) — 이후 feedback/audit/eval 추가.
 
 export type SearchFilter = {
-  // metadata.tax_type 정확 일치. spec §3.1 라벨 컨벤션의 `vat-general`/`vat-simplified`/
-  // `vat-common` 중 하나, 또는 미래 세목 prefix(`inc-`/`corp-` 등).
-  tax_type?: string;
+  // metadata.tax_type(jsonb 키는 spec §3.1의 snake case 그대로) 정확 일치 필터. 도메인 표면
+  // 컨벤션은 camelCase로 통일해 TS 호출자가 SQL 내부 키와 분리되도록 한다.
+  taxType?: string;
 };
 
 export type SearchOptions = {
@@ -21,16 +21,16 @@ export type SearchOptions = {
 };
 
 export type SearchResult = {
-  chunk_id: string;
-  doc_id: string;
-  source_id: string;
-  doc_title: string;
-  doc_version: string | null;
+  chunkId: string;
+  docId: string;
+  sourceId: string;
+  docTitle: string;
+  docVersion: string | null;
   // documents.source_url — sources.json의 url(예: NTS 다운로드 링크). UI 인용 패널에서
   // "원본 PDF 다운로드" 앵커로 사용. 적재 시 nullable이므로 호출자도 분기 처리.
-  source_url: string | null;
+  sourceUrl: string | null;
   page: number | null;
-  section_path: string | null;
+  sectionPath: string | null;
   content: string;
   similarity: number;
   metadata: Record<string, unknown>;
@@ -89,39 +89,42 @@ export function createGateway(db: Db) {
   return {
     chunks: {
       /**
-       * spec §3.2 retrieval SQL — pgvector cosine top-k + tax_type 메타 필터.
-       * version 가중·최신 우선은 의도적으로 SQL 밖에 둠(generation 단 정책).
-       * documents JOIN으로 인용 모달 표시에 필요한 doc_title·doc_version까지 한 번에 반환.
+       * spec §3.2 retrieval — pgvector cosineDistance(<=>) top-k + tax_type 메타 필터.
+       * version 가중·최신 우선은 의도적으로 builder 밖에 둠(generation 단 정책).
+       * documents JOIN으로 인용 모달 표시에 필요한 docTitle·docVersion까지 한 번에 반환.
+       * Drizzle builder가 SELECT alias를 객체 키로 자동 매핑 → 도메인은 camelCase 유지.
        */
       async search({
         embedding,
         k = 8,
         filter,
       }: SearchOptions): Promise<SearchResult[]> {
-        // pgvector 바인딩은 "[a,b,c]" 텍스트 → ::vector 캐스트 형태가 가장 폭넓게 호환.
-        // postgres-js에 array 직접 바인딩은 dimension 메타 손실 위험이 있어 회피.
-        const vec = `[${embedding.join(",")}]`;
-        const taxType = filter?.tax_type ?? null;
+        const distance = cosineDistance(chunks.embedding, embedding);
+        const taxType = filter?.taxType ?? null;
 
-        const rows = await db.execute<SearchResult>(sql`
-          SELECT c.id::text                            AS chunk_id,
-                 c.doc_id::text                        AS doc_id,
-                 c.metadata->>'source_id'              AS source_id,
-                 d.title                               AS doc_title,
-                 d.version                             AS doc_version,
-                 d.source_url                          AS source_url,
-                 c.page,
-                 c.section_path,
-                 c.content,
-                 c.metadata,
-                 1 - (c.embedding <=> ${vec}::vector)  AS similarity
-          FROM chunks c
-          JOIN documents d ON d.id = c.doc_id
-          WHERE (${taxType}::text IS NULL OR c.metadata->>'tax_type' = ${taxType}::text)
-          ORDER BY c.embedding <=> ${vec}::vector
-          LIMIT ${k}
-        `);
-        return rows as unknown as SearchResult[];
+        return db
+          .select({
+            chunkId: sql<string>`${chunks.id}::text`.as("chunkId"),
+            docId: sql<string>`${chunks.docId}::text`.as("docId"),
+            // chunks.metadata jsonb의 키는 spec §3.1 컨벤션 그대로(snake) — SQL 내부의 키이므로
+            // 도메인 camel 표면과 격리. ingest 단(Python)이 동일 키로 적재.
+            sourceId: sql<string>`${chunks.metadata}->>'source_id'`.as("sourceId"),
+            docTitle: documents.title,
+            docVersion: documents.version,
+            sourceUrl: documents.sourceUrl,
+            page: chunks.page,
+            sectionPath: chunks.sectionPath,
+            content: chunks.content,
+            metadata: chunks.metadata,
+            similarity: sql<number>`1 - (${distance})`.as("similarity"),
+          })
+          .from(chunks)
+          .innerJoin(documents, eq(documents.id, chunks.docId))
+          .where(
+            sql`(${taxType}::text IS NULL OR ${chunks.metadata}->>'tax_type' = ${taxType}::text)`,
+          )
+          .orderBy(distance)
+          .limit(k) as Promise<SearchResult[]>;
       },
     },
     evalItems: {

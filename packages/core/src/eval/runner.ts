@@ -26,7 +26,7 @@ export type GoldenSet = {
 type Distribution = {
   total: number;
   category: Record<string, number>;
-  tax_type: Record<string, number>;
+  taxType: Record<string, number>;
   difficulty: Record<string, number>;
 };
 
@@ -40,7 +40,7 @@ const EXPECTED_DISTRIBUTION: Distribution = {
     간이과세: 4,
     가산세: 4,
   },
-  tax_type: {
+  taxType: {
     "vat-common": 15,
     "vat-general": 10,
     "vat-simplified": 5,
@@ -71,15 +71,15 @@ export function lintGoldenSet(
   for (const it of items) {
     if (seen.has(it.id)) errors.push(`duplicate id: ${it.id}`);
     seen.add(it.id);
-    if (!validSourceIds.has(it.expected_citation_doc)) {
-      errors.push(`unknown source_id: ${it.id} → ${it.expected_citation_doc}`);
+    if (!validSourceIds.has(it.expectedCitationDoc)) {
+      errors.push(`unknown sourceId: ${it.id} → ${it.expectedCitationDoc}`);
     }
-    if (it.expected_keywords.length === 0) {
+    if (it.expectedKeywords.length === 0) {
       errors.push(`empty keywords: ${it.id}`);
     }
   }
 
-  for (const axis of ["category", "tax_type", "difficulty"] as const) {
+  for (const axis of ["category", "taxType", "difficulty"] as const) {
     const expected = EXPECTED_DISTRIBUTION[axis];
     const actual: Record<string, number> = {};
     for (const it of items) {
@@ -104,36 +104,36 @@ export function lintGoldenSet(
 export type EvalResultEntry = {
   id: string;
   question: string;
-  response_text: string;
+  responseText: string;
   citations: Array<{
-    source_id: string;
+    sourceId: string;
     page: number | null;
-    section_path: string | null;
+    sectionPath: string | null;
     snippet: string;
   }>;
   scores: AxisScores;
   weighted: number;
-  latency_ms: number;
+  latencyMs: number;
   tokens: { input: number | undefined; output: number | undefined };
-  expected_keywords_hit: string[];
-  expected_keywords_miss: string[];
-  finish_reason: string;
+  expectedKeywordsHit: string[];
+  expectedKeywordsMiss: string[];
+  finishReason: string;
   model: string;
 };
 
 export type EvalSummary = {
   n: number;
-  weighted_avg: number;
+  weightedAvg: number;
   axes: AxisScores; // 0/1 축은 평균이 0~1 실수가 됨 — 타입은 동일
-  by_category: Record<string, { n: number; weighted_avg: number }>;
-  by_difficulty: Record<string, { n: number; weighted_avg: number }>;
-  by_tax_type: Record<string, { n: number; weighted_avg: number }>;
+  byCategory: Record<string, { n: number; weightedAvg: number }>;
+  byDifficulty: Record<string, { n: number; weightedAvg: number }>;
+  byTaxType: Record<string, { n: number; weightedAvg: number }>;
   failures: string[];
   totals: {
-    latency_ms_p50: number;
-    latency_ms_p95: number;
-    input_tokens_sum: number;
-    output_tokens_sum: number;
+    latencyMsP50: number;
+    latencyMsP95: number;
+    inputTokensSum: number;
+    outputTokensSum: number;
   };
   weights: typeof WEIGHTS;
 };
@@ -164,39 +164,39 @@ function summarize(
     return Object.fromEntries(
       Object.entries(groups).map(([k, vals]) => [
         k,
-        { n: vals.length, weighted_avg: avg(vals) },
+        { n: vals.length, weightedAvg: avg(vals) },
       ]),
     );
   };
 
-  const latencies = results.map((r) => r.latency_ms);
+  const latencies = results.map((r) => r.latencyMs);
 
   return {
     n: results.length,
-    weighted_avg: avg(results.map((r) => r.weighted)),
+    weightedAvg: avg(results.map((r) => r.weighted)),
     axes: {
-      keyword_recall: avg(results.map((r) => r.scores.keyword_recall)),
+      keywordRecall: avg(results.map((r) => r.scores.keywordRecall)),
       // 0/1 축의 평균은 실수지만 AxisScores 타입의 0|1 제약 때문에 단언이 필요.
       // 채점 단계의 단위 점수는 정확히 0|1이므로 평균만 cast.
-      citation_present: avg(results.map((r) => r.scores.citation_present)) as
+      citationPresent: avg(results.map((r) => r.scores.citationPresent)) as
         | 0
         | 1,
-      citation_correct: avg(results.map((r) => r.scores.citation_correct)) as
+      citationCorrect: avg(results.map((r) => r.scores.citationCorrect)) as
         | 0
         | 1,
-      no_hallucination: avg(results.map((r) => r.scores.no_hallucination)) as
+      noHallucination: avg(results.map((r) => r.scores.noHallucination)) as
         | 0
         | 1,
     },
-    by_category: groupBy("category"),
-    by_difficulty: groupBy("difficulty"),
-    by_tax_type: groupBy("tax_type"),
+    byCategory: groupBy("category"),
+    byDifficulty: groupBy("difficulty"),
+    byTaxType: groupBy("taxType"),
     failures: results.filter((r) => r.weighted < 0.5).map((r) => r.id),
     totals: {
-      latency_ms_p50: percentile(latencies, 0.5),
-      latency_ms_p95: percentile(latencies, 0.95),
-      input_tokens_sum: sum(results.map((r) => r.tokens.input ?? 0)),
-      output_tokens_sum: sum(results.map((r) => r.tokens.output ?? 0)),
+      latencyMsP50: percentile(latencies, 0.5),
+      latencyMsP95: percentile(latencies, 0.95),
+      inputTokensSum: sum(results.map((r) => r.tokens.input ?? 0)),
+      outputTokensSum: sum(results.map((r) => r.tokens.output ?? 0)),
     },
     weights: WEIGHTS,
   };
@@ -225,20 +225,20 @@ async function runOne(
   return {
     id: item.id,
     question: item.question,
-    response_text: meta.text,
+    responseText: meta.text,
     citations: citations.map((c) => ({
-      source_id: c.source_id,
+      sourceId: c.sourceId,
       page: c.page,
-      section_path: c.section_path,
+      sectionPath: c.sectionPath,
       snippet: c.snippet,
     })),
     scores: axisScores,
     weighted: w,
-    latency_ms: t1 - t0,
+    latencyMs: t1 - t0,
     tokens: { input: meta.inputTokens, output: meta.outputTokens },
-    expected_keywords_hit: hit,
-    expected_keywords_miss: miss,
-    finish_reason: meta.finishReason,
+    expectedKeywordsHit: hit,
+    expectedKeywordsMiss: miss,
+    finishReason: meta.finishReason,
     model: meta.model,
   };
 }
@@ -271,11 +271,11 @@ export async function runEval(args: {
   const evalItemRows: EvalItem[] = set.items.map((it) => ({
     id: it.id,
     question: it.question,
-    expectedKeywords: it.expected_keywords,
-    expectedCitationDoc: it.expected_citation_doc,
+    expectedKeywords: it.expectedKeywords,
+    expectedCitationDoc: it.expectedCitationDoc,
     category: it.category,
     difficulty: it.difficulty,
-    taxType: it.tax_type,
+    taxType: it.taxType,
   }));
   await gateway.evalItems.upsert(evalItemRows);
 

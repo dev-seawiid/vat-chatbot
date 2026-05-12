@@ -20,7 +20,7 @@ type CitationPanelProps = {
 
 /**
  * 인용 근거 패널 — 데스크톱은 우측 Sheet, 모바일은 하단 Drawer (다크 글래스).
- * 카드: dark surface · serif doc_title · mono 메타 · snippet.
+ * 카드: dark surface · serif docTitle · mono 메타 · snippet.
  * 선택된 인용: 좌측 3px 옐로우 룰 + 옐로우 글로우 + lift.
  */
 export function CitationPanel({
@@ -58,16 +58,16 @@ export function CitationPanel({
               const n = idx + 1;
               const isSelected = n === selected;
               const meta = [
-                c.doc_version,
+                c.docVersion,
                 c.page != null ? `p.${c.page}` : null,
-                c.section_path,
+                c.sectionPath,
               ]
                 .filter(Boolean)
                 .join(" · ");
 
               return (
                 <li
-                  key={c.chunk_id}
+                  key={c.chunkId}
                   className={cn(
                     "stagger-enter relative border bg-surface-1 p-5",
                     "transition-[border-color,transform,box-shadow] duration-300",
@@ -100,7 +100,7 @@ export function CitationPanel({
                     </span>
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[17px] leading-[1.3] tracking-[-0.005em] text-fg">
-                        {c.doc_title}
+                        {c.docTitle}
                       </h3>
                       {meta && (
                         <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
@@ -114,9 +114,9 @@ export function CitationPanel({
                     {c.snippet}
                   </p>
 
-                  {c.source_url && (
+                  {c.sourceUrl && (
                     <a
-                      href={c.source_url}
+                      href={c.sourceUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={cn(

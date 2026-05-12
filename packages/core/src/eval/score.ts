@@ -8,37 +8,37 @@ import type { Citation } from "../rag/citation";
  * 박제해야 비교 가능 — 본 모듈에서는 단일 가중치 가정.
  */
 
-// golden.json 한 항목. snake_case는 마스터 spec §4.4 스키마 예시·국세청 자료 톤과 일치.
-// DB 영속화는 gateway.evalItems(camelCase)에서 변환 — 본 모듈은 JSON 형태를 그대로 받는다.
+// golden.json 한 항목의 도메인 표현 — 도메인 표면은 camelCase. golden.json은 사람이 작성하는
+// 외부 JSON으로 spec §4.4 컨벤션상 snake 유지하며, scripts/eval-run.ts의 loader가 변환한다.
 export type GoldenItem = {
   id: string;
   question: string;
-  expected_keywords: string[];
-  expected_citation_doc: string; // sources.json id (예: "nts-vat-2025-2q-manual")
+  expectedKeywords: string[];
+  expectedCitationDoc: string; // sources.json id (예: "nts-vat-2025-2q-manual")
   category: string;
   difficulty: "easy" | "medium" | "hard";
-  tax_type: string;
+  taxType: string;
 };
 
-// 채점 입력 — generate가 만들어낸 답변 텍스트와 인용 배열. Citation은 source_id를 갖는다(§8).
+// 채점 입력 — generate가 만들어낸 답변 텍스트와 인용 배열. Citation은 sourceId를 갖는다.
 export type RagResponse = {
   text: string;
   citations: Citation[];
 };
 
-// 4축 점수 — keyword_recall만 0~1 실수, 나머지는 0/1 이진.
+// 4축 점수 — keywordRecall만 0~1 실수, 나머지는 0/1 이진.
 export type AxisScores = {
-  keyword_recall: number;
-  citation_present: 0 | 1;
-  citation_correct: 0 | 1;
-  no_hallucination: 0 | 1;
+  keywordRecall: number;
+  citationPresent: 0 | 1;
+  citationCorrect: 0 | 1;
+  noHallucination: 0 | 1;
 };
 
 export const WEIGHTS = {
-  keyword_recall: 0.4,
-  citation_present: 0.2,
-  citation_correct: 0.3,
-  no_hallucination: 0.1,
+  keywordRecall: 0.4,
+  citationPresent: 0.2,
+  citationCorrect: 0.3,
+  noHallucination: 0.1,
 } as const;
 
 // 마스터 spec §4.5 결정 — toy 단계는 정규식 기반 헷지 표현 탐지로 충분.
@@ -46,28 +46,28 @@ export const WEIGHTS = {
 const HALLUCINATION_PATTERN = /추측|아마|것 같|확실하지/;
 
 export function score(item: GoldenItem, response: RagResponse): AxisScores {
-  const hits = item.expected_keywords.filter((k) => response.text.includes(k));
+  const hits = item.expectedKeywords.filter((k) => response.text.includes(k));
   return {
-    keyword_recall:
-      item.expected_keywords.length === 0
+    keywordRecall:
+      item.expectedKeywords.length === 0
         ? 0
-        : hits.length / item.expected_keywords.length,
-    citation_present: response.citations.length > 0 ? 1 : 0,
-    citation_correct: response.citations.some(
-      (c) => c.source_id === item.expected_citation_doc,
+        : hits.length / item.expectedKeywords.length,
+    citationPresent: response.citations.length > 0 ? 1 : 0,
+    citationCorrect: response.citations.some(
+      (c) => c.sourceId === item.expectedCitationDoc,
     )
       ? 1
       : 0,
-    no_hallucination: HALLUCINATION_PATTERN.test(response.text) ? 0 : 1,
+    noHallucination: HALLUCINATION_PATTERN.test(response.text) ? 0 : 1,
   };
 }
 
 export function weighted(s: AxisScores): number {
   return (
-    s.keyword_recall * WEIGHTS.keyword_recall +
-    s.citation_present * WEIGHTS.citation_present +
-    s.citation_correct * WEIGHTS.citation_correct +
-    s.no_hallucination * WEIGHTS.no_hallucination
+    s.keywordRecall * WEIGHTS.keywordRecall +
+    s.citationPresent * WEIGHTS.citationPresent +
+    s.citationCorrect * WEIGHTS.citationCorrect +
+    s.noHallucination * WEIGHTS.noHallucination
   );
 }
 
@@ -78,7 +78,7 @@ export function partitionKeywords(
 ): { hit: string[]; miss: string[] } {
   const hit: string[] = [];
   const miss: string[] = [];
-  for (const k of item.expected_keywords) {
+  for (const k of item.expectedKeywords) {
     (response.text.includes(k) ? hit : miss).push(k);
   }
   return { hit, miss };

@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 
   try {
     const { query, taxType, k } = parseArgs(process.argv.slice(2));
-    const filter = taxType ? { tax_type: taxType } : undefined;
+    const filter = taxType ? { taxType } : undefined;
 
     console.log(`\nQuery   : ${query}`);
     console.log(`k       : ${k}`);
@@ -65,11 +65,11 @@ async function main(): Promise<void> {
     for (let i = 0; i < citations.length; i++) {
       const c = citations[i];
       console.log(
-        `[${i + 1}] ${c.doc_title}${c.doc_version ? ` · ${c.doc_version}` : ""}${
+        `[${i + 1}] ${c.docTitle}${c.docVersion ? ` · ${c.docVersion}` : ""}${
           c.page != null ? ` · p.${c.page}` : ""
         }`,
       );
-      if (c.section_path) console.log(`    ${c.section_path}`);
+      if (c.sectionPath) console.log(`    ${c.sectionPath}`);
     }
   } finally {
     await core.close();

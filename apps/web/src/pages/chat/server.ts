@@ -71,7 +71,7 @@ export async function streamChat(input: StreamChatInput) {
           query: input.query,
           text: meta.text,
           citations,
-          retrievedChunkIds: chunks.map((c) => c.chunk_id),
+          retrievedChunkIds: chunks.map((c) => c.chunkId),
           model: meta.model,
           latencyMs: Date.now() - input.startedAt,
           inputTokens: meta.inputTokens,

@@ -20,10 +20,10 @@ export function buildSystemMessage(chunks: SearchResult[]): string {
   const ctx = chunks
     .map((c, i) => {
       const meta = [
-        c.doc_title,
-        c.doc_version ? `버전 ${c.doc_version}` : null,
+        c.docTitle,
+        c.docVersion ? `버전 ${c.docVersion}` : null,
         c.page != null ? `p.${c.page}` : null,
-        c.section_path,
+        c.sectionPath,
       ]
         .filter(Boolean)
         .join(" · ");
