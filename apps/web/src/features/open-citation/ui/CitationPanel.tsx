@@ -4,12 +4,12 @@ import type { Citation } from "@vat/core";
 
 import { cn } from "@/shared/lib/utils";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/shared/ui/sheet";
+  ResponsiveSheet,
+  ResponsiveSheetContent,
+  ResponsiveSheetDescription,
+  ResponsiveSheetHeader,
+  ResponsiveSheetTitle,
+} from "@/shared/ui/responsive-sheet";
 
 type CitationPanelProps = {
   open: boolean;
@@ -19,7 +19,7 @@ type CitationPanelProps = {
 };
 
 /**
- * 인용 근거 패널 — 우측 슬라이드 Sheet (다크 글래스).
+ * 인용 근거 패널 — 데스크톱은 우측 Sheet, 모바일은 하단 Drawer (다크 글래스).
  * 카드: dark surface · serif doc_title · mono 메타 · snippet.
  * 선택된 인용: 좌측 3px 옐로우 룰 + 옐로우 글로우 + lift.
  */
@@ -32,19 +32,19 @@ export function CitationPanel({
   const isEmpty = citations.length === 0;
 
   return (
-    <Sheet
+    <ResponsiveSheet
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
-      <SheetContent side="right">
-        <SheetHeader>
-          <SheetTitle>References · 인용 근거</SheetTitle>
-          <SheetDescription>
+      <ResponsiveSheetContent>
+        <ResponsiveSheetHeader>
+          <ResponsiveSheetTitle>References · 인용 근거</ResponsiveSheetTitle>
+          <ResponsiveSheetDescription>
             답변 본문 [n]을 클릭한 출처가 강조됩니다.
-          </SheetDescription>
-        </SheetHeader>
+          </ResponsiveSheetDescription>
+        </ResponsiveSheetHeader>
 
         <ol className="flex-1 space-y-4 overflow-y-auto px-7 py-6">
           {isEmpty ? (
@@ -135,7 +135,7 @@ export function CitationPanel({
             })
           )}
         </ol>
-      </SheetContent>
-    </Sheet>
+      </ResponsiveSheetContent>
+    </ResponsiveSheet>
   );
 }
