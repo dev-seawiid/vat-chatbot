@@ -1,6 +1,4 @@
-import type { Citation } from "@vat/core";
-
-import type { ChatUIMessage } from "../types";
+import type { ChatUIMessage, Citation } from "../types";
 
 export function getText(message: ChatUIMessage): string {
   let out = "";

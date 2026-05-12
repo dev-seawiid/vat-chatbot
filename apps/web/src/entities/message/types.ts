@@ -1,6 +1,8 @@
 import type { Citation } from "@vat/core";
 import type { UIMessage } from "ai";
 
+export type { Citation };
+
 export type ChatDataParts = {
   citations: Citation[];
   // OTEL trace_id를 클라까지 흘려 user-thumbs score 송출 시 키로 사용. 텔레메트리 미부팅

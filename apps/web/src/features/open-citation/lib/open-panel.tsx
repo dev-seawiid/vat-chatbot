@@ -1,6 +1,6 @@
 "use client";
 
-import type { Citation } from "@vat/core";
+import type { Citation } from "@/entities/message";
 import { overlay } from "overlay-kit";
 
 import { CitationPanel } from "../ui/CitationPanel";
