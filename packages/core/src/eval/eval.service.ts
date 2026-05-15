@@ -14,20 +14,12 @@ import type {
   SaveRunArgs,
 } from "./eval.repository";
 
-/**
- * 2026-05-07 eval 슬라이스 §7 — eval 도메인 use case. golden.json 한 항목씩 ask로 답을 받아
- * score를 매기고 결과를 eval_runs.results / .summary 형태로 정규화. CLI(scripts/eval-run.ts)는
- * 본 service만 호출하고 repository를 직접 보지 않는다.
- */
-
-// golden.json 루트 — version은 eval_runs.goldensetVersion에 박제, items는 채점 단위.
-// _source_excerpt / _source_page 같은 underscore 필드는 인간 검수용이라 본 모듈에서 무시한다.
+// _source_excerpt / _source_page 같은 underscore 필드는 인간 검수용 — 채점에서 무시.
 export type GoldenSet = {
   version: string;
   items: GoldenItem[];
 };
 
-// spec §1.1 분배표 — lint가 본 표와 일치하지 않으면 fail.
 type Distribution = {
   total: number;
   category: Record<string, number>;
@@ -55,11 +47,7 @@ const EXPECTED_DISTRIBUTION: Distribution = {
 
 export type LintResult = { ok: boolean; errors: string[] };
 
-/**
- * spec §1.3 invariant — 카테고리/tax_type/난이도 분포, id 유니크, source_id 정합성을
- * golden.json에서 직접 검사. 호출자는 ok=false면 exit 1로 막아 commit 전 검출.
- * 순수 함수라 service factory와 무관하게 단독 export.
- */
+// commit 전 분포·id 유니크·source_id 정합성 검사. service factory와 무관한 순수 함수.
 export function lintGoldenSet(
   set: GoldenSet,
   validSourceIds: Set<string>,
@@ -106,7 +94,6 @@ export function lintGoldenSet(
   return { ok: errors.length === 0, errors };
 }
 
-// 한 문항 실행 결과 — eval_runs.results jsonb에 그대로 박제(spec §5.1).
 export type EvalResultEntry = {
   id: string;
   question: string;
@@ -133,7 +120,7 @@ export type EvalResultEntry = {
 export type EvalSummary = {
   n: number;
   weightedAvg: number;
-  axes: AxisScores; // 0/1 축은 평균이 0~1 실수가 됨 — 타입은 동일
+  axes: AxisScores;
   byCategory: Record<string, { n: number; weightedAvg: number }>;
   byDifficulty: Record<string, { n: number; weightedAvg: number }>;
   byTaxType: Record<string, { n: number; weightedAvg: number }>;
@@ -185,8 +172,7 @@ function summarize(
     weightedAvg: avg(results.map((r) => r.weighted)),
     axes: {
       keywordRecall: avg(results.map((r) => r.scores.keywordRecall)),
-      // 0/1 축의 평균은 실수지만 AxisScores 타입의 0|1 제약 때문에 단언이 필요.
-      // 채점 단계의 단위 점수는 정확히 0|1이므로 평균만 cast.
+      // 0/1 단위 점수의 평균은 실수가 되지만 AxisScores 타입 제약 때문에 단언 필요.
       citationPresent: avg(results.map((r) => r.scores.citationPresent)) as
         | 0
         | 1,
@@ -211,9 +197,7 @@ function summarize(
   };
 }
 
-// 한 항목을 ask로 실행해 결과 entry 생성. text/citation 두 stream을 모두 drain해야
-// finish가 resolve — chat.service가 fullStream 단일 백그라운드 루프에서 두 큐로 fan-out
-// 하므로 어느 한 쪽만 소비하면 큐가 막혀 finish 대기가 영원해진다.
+// text/citation 두 stream 모두 drain해야 finish가 resolve(chat.service의 fan-out 큐 invariant).
 async function runOne(
   ask: AskFn,
   item: GoldenItem,
@@ -231,8 +215,6 @@ async function runOne(
   const meta = await finish;
   const t1 = Date.now();
 
-  // 검증 통과한 인용만 finish.citations에 담겨 옴 — score의 citationCorrect가 환각 인용에
-  // 끌려가지 않도록 chat.service에서 post-hoc verify(quote ⊂ chunk.content)로 거른 결과.
   const response = { text: meta.text, citations: meta.citations };
   const axisScores = score(item, response);
   const w = weighted(axisScores);
@@ -242,9 +224,6 @@ async function runOne(
     id: item.id,
     question: item.question,
     responseText: meta.text,
-    // eval_runs.results jsonb에 박제 — 채점 재현성 + LLM-judge 재실행 가능성을 위해
-    // quote/위치까지 그대로 저장. content는 chunk 본문 통째라 jsonb 사이즈가 커지지만
-    // 회귀 분석 시점에 청크 join 없이 한 행으로 답·인용·근거 텍스트가 다 보이는 게 더 가치 큼.
     citations: meta.citations.map((c) => ({
       sourceId: c.sourceId,
       page: c.page,
@@ -275,20 +254,11 @@ export type RunnerOptions = {
 
 export type EvalService = ReturnType<typeof createEvalService>;
 
-/**
- * eval domain service — repository 위임 + runEval composite. ask는 deps가 아니라 runEval 인자로
- * 받는다(throttle 등 CLI 정책을 호출자가 결정). saveRun/listRuns/upsertItems는 controller가
- * repository를 직접 import하지 못하게 service 경유를 강제.
- */
 export function createEvalService(deps: { evalRepo: EvalRepository }) {
   const { evalRepo } = deps;
 
   return {
-    /**
-     * 본 슬라이스의 메인 흐름 — eval_items upsert → 항목 직렬 실행 → summarize → saveRun.
-     * 직렬 실행은 토이 규모(30문항) + rate limit/디버깅 우위. 병렬화는 v2.
-     * ask는 호출자가 주입 — 보통 throttle 래핑된 chat service의 ask.
-     */
+    // ask는 deps가 아니라 인자 — throttle 등 CLI 정책을 호출자가 결정.
     async runEval(args: {
       ask: AskFn;
       set: GoldenSet;
@@ -323,8 +293,6 @@ export function createEvalService(deps: { evalRepo: EvalRepository }) {
       }
 
       const summary = summarize(results, items);
-
-      // 실제 호출에서 사용된 모델 — generate.ts가 ResolvedModel.modelId로 박제한 값.
       const usedModel = results[0]?.model ?? "(none)";
 
       const saveArgs: SaveRunArgs = {

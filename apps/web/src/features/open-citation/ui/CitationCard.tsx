@@ -8,16 +8,11 @@ import { HighlightedQuote } from "./HighlightedQuote";
 
 type CitationCardProps = {
   citation: Citation;
-  /** 1-based 인덱스 — CitationPanel의 selected와 비교해 강조 여부 결정 */
+  /** 1-based — CitationPanel의 selected와 비교 */
   index: number;
   isSelected: boolean;
 };
 
-/**
- * 인용 근거 한 건을 표시하는 카드. 좌측 룰(선택 시 옐로우) + 번호 배지 + docTitle/meta header,
- * chunk 본문 + quote 구간 highlight body, 원본 PDF 다운로드 링크.
- * 표현 전용 — 상호작용(선택 전환·열기·닫기)은 상위(CitationPanel)가 prop으로 결정.
- */
 export function CitationCard({ citation, index, isSelected }: CitationCardProps) {
   const meta = [
     citation.docVersion,

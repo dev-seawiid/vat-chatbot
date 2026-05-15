@@ -19,11 +19,6 @@ type CitationPanelProps = {
   selected: number;
 };
 
-/**
- * 인용 근거 패널 — 데스크톱은 우측 Sheet, 모바일은 하단 Drawer (다크 글래스).
- * 본 컴포넌트는 패널 뼈대(open/close · empty state · 카드 리스트)만 소유.
- * 카드 1장의 표현은 CitationCard, 인용 구간 highlight는 HighlightedContent가 분담.
- */
 export function CitationPanel({
   open,
   onClose,

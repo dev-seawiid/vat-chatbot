@@ -8,9 +8,7 @@ export function getText(message: ChatUIMessage): string {
   return out;
 }
 
-// 모델이 같은 chunk을 다른 quote로 cite_chunk 여러 번 호출할 수 있다 — UI는 칩 1개로
-// 통합해야 하므로 accessor 단계에서 chunkId로 dedup하여 모든 소비자가 같은 list를 본다.
-// raw stream이 필요하면 message.parts에서 data-citation을 직접 순회.
+// 같은 chunk이 다른 quote로 여러 번 선언될 수 있어 chunkId dedup — 모든 소비자가 같은 list.
 export function getCitations(message: ChatUIMessage): Citation[] {
   const seen = new Set<string>();
   const out: Citation[] = [];
@@ -30,9 +28,7 @@ export function getTraceId(message: ChatUIMessage): string | null {
   return null;
 }
 
-// 서버 boundary용 — 외부 입력(JSON.parse 결과)을 ChatUIMessage로 강제 캐스팅하지 않고
-// type guard로 안전하게 좁힌 뒤 user 텍스트만 추출. 검증 실패 시 빈 문자열을 반환해
-// 호출자가 "empty query" 분기로 처리하도록 한다.
+// 외부 입력(JSON.parse 결과)을 캐스팅 없이 type guard로 좁힌 뒤 user 텍스트만 추출.
 export function extractUserText(message: unknown): string {
   if (!isUserMessage(message)) return "";
   let out = "";

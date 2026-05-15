@@ -2,7 +2,6 @@ import "dotenv/config";
 
 import { createCore, parseEnv } from "../src";
 
-// 검증 CLI — apps/web 진입 전에 retrieve+generate end-to-end를 눈으로 확인하는 thin entrypoint.
 // 사용:
 //   pnpm core:ask "간이과세자 신고는 어떻게 해야 하나요?"
 //   pnpm core:ask "..." --tax_type=vat-simplified --k=6
@@ -52,14 +51,13 @@ async function main(): Promise<void> {
       filter,
     });
 
-    // text와 citation 두 stream을 병렬 drain. text는 stdout에, citation은 도착 순서대로
-    // stderr에 출력해 인용이 답변 본문 어느 시점에 선언되었는지 눈으로 확인 가능.
     const textPump = (async () => {
       console.log("--- answer ---");
       for await (const chunk of textStream) process.stdout.write(chunk);
       console.log("\n--------------\n");
     })();
 
+    // citation은 본문 어느 시점에 선언됐는지 stderr에 흐리게 출력.
     const citationPump = (async () => {
       for await (const c of citationStream) {
         console.error(
