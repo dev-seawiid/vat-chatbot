@@ -115,7 +115,10 @@ export type EvalResultEntry = {
     sourceId: string;
     page: number | null;
     sectionPath: string | null;
-    snippet: string;
+    content: string;
+    quote: string;
+    quoteStart: number;
+    quoteEnd: number;
   }>;
   scores: AxisScores;
   weighted: number;
@@ -208,22 +211,29 @@ function summarize(
   };
 }
 
-// 한 항목을 ask로 실행해 결과 entry 생성. stream은 끝까지 drain해야 finish가 resolve.
+// 한 항목을 ask로 실행해 결과 entry 생성. text/citation 두 stream을 모두 drain해야
+// finish가 resolve — chat.service가 fullStream 단일 백그라운드 루프에서 두 큐로 fan-out
+// 하므로 어느 한 쪽만 소비하면 큐가 막혀 finish 대기가 영원해진다.
 async function runOne(
   ask: AskFn,
   item: GoldenItem,
   k: number,
 ): Promise<EvalResultEntry> {
   const t0 = Date.now();
-  const { textStream, citations, finish } = await ask(item.question, { k });
-  // 본 단계는 partial token이 필요 없어 drain만. apps/web과 달리 SSE 미사용.
-  for await (const _ of textStream) {
-    void _;
-  }
+  const { textStream, citationStream, finish } = await ask(item.question, { k });
+  const drainText = (async () => {
+    for await (const _ of textStream) void _;
+  })();
+  const drainCitations = (async () => {
+    for await (const _ of citationStream) void _;
+  })();
+  await Promise.all([drainText, drainCitations]);
   const meta = await finish;
   const t1 = Date.now();
 
-  const response = { text: meta.text, citations };
+  // 검증 통과한 인용만 finish.citations에 담겨 옴 — score의 citationCorrect가 환각 인용에
+  // 끌려가지 않도록 chat.service에서 post-hoc verify(quote ⊂ chunk.content)로 거른 결과.
+  const response = { text: meta.text, citations: meta.citations };
   const axisScores = score(item, response);
   const w = weighted(axisScores);
   const { hit, miss } = partitionKeywords(item, response);
@@ -232,11 +242,17 @@ async function runOne(
     id: item.id,
     question: item.question,
     responseText: meta.text,
-    citations: citations.map((c) => ({
+    // eval_runs.results jsonb에 박제 — 채점 재현성 + LLM-judge 재실행 가능성을 위해
+    // quote/위치까지 그대로 저장. content는 chunk 본문 통째라 jsonb 사이즈가 커지지만
+    // 회귀 분석 시점에 청크 join 없이 한 행으로 답·인용·근거 텍스트가 다 보이는 게 더 가치 큼.
+    citations: meta.citations.map((c) => ({
       sourceId: c.sourceId,
       page: c.page,
       sectionPath: c.sectionPath,
-      snippet: c.snippet,
+      content: c.content,
+      quote: c.quote,
+      quoteStart: c.quoteStart,
+      quoteEnd: c.quoteEnd,
     })),
     scores: axisScores,
     weighted: w,

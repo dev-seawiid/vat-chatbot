@@ -43,26 +43,43 @@ export async function streamChat(input: StreamChatInput) {
   // sessionId/traceName을 박는다. streamText는 chat.ask 내부에서 호출되므로 그 시점 context를
   // 캡처해야 — 즉 chat.ask 자체를 감싸야 한다(콜백 종료 후 stream consumption은 컨텍스트
   // 밖이지만, 중요한 건 span CREATION 시점 컨텍스트라 문제 없음).
-  const { textStream, citations, chunks, finish } = await propagateAttributes(
-    { sessionId: input.conversationId, traceName: "chat-message" },
-    () => core.chat.ask(input.query),
-  );
+  const { textStream, citationStream, chunks, finish } =
+    await propagateAttributes(
+      { sessionId: input.conversationId, traceName: "chat-message" },
+      () => core.chat.ask(input.query),
+    );
 
   return createUIMessageStream<ChatUIMessage>({
-    execute: async ({ writer }: { writer: UIMessageStreamWriter<ChatUIMessage> }) => {
+    execute: async ({
+      writer,
+    }: {
+      writer: UIMessageStreamWriter<ChatUIMessage>;
+    }) => {
       // traceId가 있을 때만 송출 — 텔레메트리 미부팅 환경에선 part 자체 없음(클라 측
       // FeedbackBar는 traceId 부재 시 미렌더하여 의미 없는 클릭을 차단).
       if (traceId) {
         writer.write({ type: "data-trace", data: { id: traceId } });
       }
-      writer.write({ type: "data-citations", data: citations });
 
+      // text와 citation 두 channel을 병렬 drain. citation은 모델이 cite_chunk를 호출하는
+      // 시점에 1건씩 흐르므로 본문 토큰과 시간 순서가 자연 정합. 한쪽이 빨리 끝나도 다른
+      // 쪽을 막지 않도록 Promise.all로 묶는다.
       const textId = crypto.randomUUID();
-      writer.write({ type: "text-start", id: textId });
-      for await (const delta of textStream) {
-        writer.write({ type: "text-delta", id: textId, delta });
-      }
-      writer.write({ type: "text-end", id: textId });
+      const textPump = (async () => {
+        writer.write({ type: "text-start", id: textId });
+        for await (const delta of textStream) {
+          writer.write({ type: "text-delta", id: textId, delta });
+        }
+        writer.write({ type: "text-end", id: textId });
+      })();
+
+      const citationPump = (async () => {
+        for await (const citation of citationStream) {
+          writer.write({ type: "data-citation", data: citation });
+        }
+      })();
+
+      await Promise.all([textPump, citationPump]);
 
       const meta = await finish;
       try {
@@ -70,7 +87,9 @@ export async function streamChat(input: StreamChatInput) {
           conversationId: input.conversationId,
           query: input.query,
           text: meta.text,
-          citations,
+          // post-hoc verify를 통과한 인용만 messages.citations에 박제 — 모델 환각이
+          // 영속 저장소에 새지 않도록 finish.citations(검증 통과 list)를 그대로 사용.
+          citations: meta.citations,
           retrievedChunkIds: chunks.map((c) => c.chunkId),
           model: meta.model,
           latencyMs: Date.now() - input.startedAt,

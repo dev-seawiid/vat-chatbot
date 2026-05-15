@@ -8,10 +8,17 @@ export function getText(message: ChatUIMessage): string {
   return out;
 }
 
+// 모델이 같은 chunk을 다른 quote로 cite_chunk 여러 번 호출할 수 있다 — UI는 칩 1개로
+// 통합해야 하므로 accessor 단계에서 chunkId로 dedup하여 모든 소비자가 같은 list를 본다.
+// raw stream이 필요하면 message.parts에서 data-citation을 직접 순회.
 export function getCitations(message: ChatUIMessage): Citation[] {
+  const seen = new Set<string>();
   const out: Citation[] = [];
   for (const part of message.parts) {
-    if (part.type === "data-citations") out.push(...part.data);
+    if (part.type !== "data-citation") continue;
+    if (seen.has(part.data.chunkId)) continue;
+    seen.add(part.data.chunkId);
+    out.push(part.data);
   }
   return out;
 }

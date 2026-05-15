@@ -6,29 +6,6 @@ import { cn } from "@/shared/lib/utils";
 
 import { CitationChip } from "./CitationChip";
 
-const CITE_REGEX = /\[(\d+)\]/g;
-
-type Token =
-  | { kind: "text"; value: string }
-  | { kind: "cite"; value: number };
-
-function tokenize(text: string): Token[] {
-  const tokens: Token[] = [];
-  let cursor = 0;
-  for (const match of text.matchAll(CITE_REGEX)) {
-    const idx = match.index ?? 0;
-    if (idx > cursor) {
-      tokens.push({ kind: "text", value: text.slice(cursor, idx) });
-    }
-    tokens.push({ kind: "cite", value: Number(match[1]) });
-    cursor = idx + match[0].length;
-  }
-  if (cursor < text.length) {
-    tokens.push({ kind: "text", value: text.slice(cursor) });
-  }
-  return tokens;
-}
-
 type MessageBubbleProps = {
   role: "user" | "assistant";
   text: string;
@@ -42,7 +19,10 @@ type MessageBubbleProps = {
  * - 사용자: 좌측 옐로우 2px 룰 + mono "당신" 라벨.
  * - 어시스턴트: 좌측 white/10 2px 룰 + mono "ASSISTANT" 라벨.
  *   스트리밍 중엔 본문 텍스트만 text-shimmer (옐로우 sweep) + 끝에 옐로우 caret.
- * - 인용 [n] 토큰은 CitationChip으로 분해. 근거 0개일 땐 우측 미확인 배지.
+ *
+ * 인용 표시 — cite_chunk tool 기반 응답으로 전환되며 본문에는 [n] 마커가 박히지 않는다.
+ * 따라서 인라인 토큰 분해 대신 본문 아래에 1-based 번호 칩 리스트로 보여준다. 칩 클릭은
+ * onCiteClick(n)으로 CitationPanel을 동일 인덱스에 highlight한 채 연다.
  */
 export function MessageBubble({
   role,
@@ -52,9 +32,11 @@ export function MessageBubble({
   onCiteClick,
 }: MessageBubbleProps) {
   const isUser = role === "user";
+  const isAssistant = role === "assistant";
   const showRefusalBadge =
-    role === "assistant" && citations.length === 0 && text.trim().length > 0;
-  const tokens = tokenize(text);
+    isAssistant && citations.length === 0 && text.trim().length > 0;
+  // accessor(getCitations)가 이미 chunkId dedup을 적용한 list를 넘긴다.
+  const visibleCitations = isAssistant ? citations : [];
 
   return (
     <article
@@ -92,17 +74,7 @@ export function MessageBubble({
           isStreaming && !isUser && "text-shimmer",
         )}
       >
-        {tokens.map((token, i) =>
-          token.kind === "text" ? (
-            <span key={i}>{token.value}</span>
-          ) : (
-            <CitationChip
-              key={i}
-              n={token.value}
-              onClick={() => onCiteClick?.(token.value)}
-            />
-          ),
-        )}
+        {text}
         {isStreaming && !isUser && (
           <span
             aria-hidden
@@ -110,6 +82,27 @@ export function MessageBubble({
           />
         )}
       </div>
+
+      {visibleCitations.length > 0 && (
+        <footer
+          aria-label="인용 근거"
+          className="mt-4 flex flex-wrap items-center gap-2"
+        >
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-fg-muted">
+            참고 · REFS
+          </span>
+          {visibleCitations.map((c, idx) => {
+            const n = idx + 1;
+            return (
+              <CitationChip
+                key={c.chunkId}
+                n={n}
+                onClick={() => onCiteClick?.(n)}
+              />
+            );
+          })}
+        </footer>
+      )}
     </article>
   );
 }

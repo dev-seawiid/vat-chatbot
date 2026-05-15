@@ -47,23 +47,37 @@ async function main(): Promise<void> {
     console.log(`k       : ${k}`);
     console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
 
-    const { textStream, citations, finish } = await core.chat.ask(query, {
+    const { textStream, citationStream, finish } = await core.chat.ask(query, {
       k,
       filter,
     });
 
-    console.log("--- answer ---");
-    for await (const chunk of textStream) process.stdout.write(chunk);
-    console.log("\n--------------\n");
+    // text와 citation 두 stream을 병렬 drain. text는 stdout에, citation은 도착 순서대로
+    // stderr에 출력해 인용이 답변 본문 어느 시점에 선언되었는지 눈으로 확인 가능.
+    const textPump = (async () => {
+      console.log("--- answer ---");
+      for await (const chunk of textStream) process.stdout.write(chunk);
+      console.log("\n--------------\n");
+    })();
+
+    const citationPump = (async () => {
+      for await (const c of citationStream) {
+        console.error(
+          `[cite] ${c.sourceId} · ${c.docTitle}${c.page != null ? ` · p.${c.page}` : ""}`,
+        );
+      }
+    })();
+
+    await Promise.all([textPump, citationPump]);
 
     const meta = await finish;
     console.log(
       `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}  model=${meta.model}\n`,
     );
 
-    console.log("--- citations ---");
-    for (let i = 0; i < citations.length; i++) {
-      const c = citations[i];
+    console.log("--- citations (verified) ---");
+    for (let i = 0; i < meta.citations.length; i++) {
+      const c = meta.citations[i];
       console.log(
         `[${i + 1}] ${c.docTitle}${c.docVersion ? ` · ${c.docVersion}` : ""}${
           c.page != null ? ` · p.${c.page}` : ""
