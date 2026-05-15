@@ -18,7 +18,8 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      "fixed inset-0 z-50 bg-bg/70 backdrop-blur-[3px]",
+      // 배경을 흐리거나 어둡게 덮지 않음 — click capture만 담당하는 투명 layer.
+      "fixed inset-0 z-50 bg-transparent",
       "data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out",
       className,
     )}

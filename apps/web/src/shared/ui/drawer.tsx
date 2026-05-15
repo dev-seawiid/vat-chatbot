@@ -23,7 +23,8 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-bg/70 backdrop-blur-[3px]", className)}
+    // 배경을 흐리거나 어둡게 덮지 않음 — click capture만 담당하는 투명 layer.
+    className={cn("fixed inset-0 z-50 bg-transparent", className)}
     {...props}
   />
 ));

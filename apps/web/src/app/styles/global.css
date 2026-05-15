@@ -274,7 +274,7 @@
   }
 
   .glass-strong {
-    background: rgb(10 10 11 / 0.84);
+    background: rgb(10 10 11 / 0.95);
     backdrop-filter: blur(20px) saturate(160%);
     -webkit-backdrop-filter: blur(20px) saturate(160%);
   }
