@@ -11,7 +11,18 @@ import type {
 import { buildSystemMessage } from "./prompt";
 import { CiteChunkInputSchema, tools } from "./tools";
 
-export type AskOptions = RetrieveOptions;
+export type AskOptions = RetrieveOptions & {
+  /** 누적된 이전 messages를 multi-turn context로 활용하려면 conversationId 전달.
+   *  core가 messageRepo.recentTurns로 직전 N개 메시지를 fetch해 streamText에 messages
+   *  형태로 주입(window cap = HISTORY_WINDOW). 미전달 시 single-turn 동작 — eval CLI나
+   *  대화 컨텍스트가 없는 호출(ask CLI 등)에서는 conversationId를 넘기지 않는다. */
+  conversationId?: string;
+};
+
+// multi-turn history window — 메시지 수 기준(user+assistant 짝으로 최대 3 round-trip).
+// 토이→production 점진 발전 기준 안전한 출발값. 더 긴 대화 시나리오가 일반화되면 summarization
+// 또는 embedding-based memory를 후속 슬라이스로 검토.
+const HISTORY_WINDOW = 6;
 
 export type AskResult = {
   /** 답변 본문 토큰 — [n] 같은 마커는 박히지 않는다. plain text 그대로 렌더. */
@@ -110,10 +121,20 @@ export function createChatService(deps: {
     });
     const chunkById = new Map(chunks.map((c) => [c.chunkId, c]));
 
+    // conversationId가 주입되면 직전 N개 메시지를 history로 끌어와 모델에 multi-turn context로
+    // 전달. 첫 turn에선 빈 배열이라 single-turn과 동일 동작. retrieve는 현재 turn의 query만으로
+    // 수행(history-aware retrieval = query rewriting은 후속 옵션 B 슬라이스).
+    const history = opts.conversationId
+      ? await messageRepo.recentTurns(opts.conversationId, HISTORY_WINDOW)
+      : [];
+
     const result = streamText({
       model,
       system: buildSystemMessage(chunks),
-      prompt: query,
+      messages: [
+        ...history.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user" as const, content: query },
+      ],
       tools,
       stopWhen: stepCountIs(5),
       experimental_telemetry: telemetry,

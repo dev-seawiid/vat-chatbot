@@ -16,7 +16,9 @@
 국세청 PDF — 매뉴얼·사례집 (`data/sources.json` 레지스트리). HTML·법령은 어댑터 자리만 남기고 본 spec 범위 외(후속).
 
 ### 0.4 비범위
-인증·RBAC · audit_log · PII 마스킹 · 다중 대화 이력 UI · 멀티턴 RAG · feedback DB 저장 · LLM 호출/일반 CI 자동화 일체(cron · GHA · 머지 게이트 · admin 대시보드). 사유는 토이 운영 부담 vs 가치 비교 — 영구 범위 외.
+인증·RBAC · audit_log · PII 마스킹 · 다중 대화 이력 UI · feedback DB 저장 · LLM 호출/일반 CI 자동화 일체(cron · GHA · 머지 게이트 · admin 대시보드). 사유는 토이 운영 부담 vs 가치 비교 — 영구 범위 외.
+
+**부분 적용**: 멀티턴 RAG는 §3.3에 옵션 A(generation-only multi-turn, window cap 6 messages) 적용. history-aware retrieval(query rewriting, 옵션 B)은 후속 슬라이스 TODO — 사용자 후속 질문이 직전 답변에 의존하는 케이스(예: "그건 어떻게 다른가요?")에서 retrieve 정확도 측정 후 도입 결정.
 
 ---
 
@@ -181,19 +183,24 @@ LIMIT $k;       -- 기본 k=8
 
 ### 3.3 Generation
 
-`packages/core/src/chat/chat.service.ts::ask()` = `retrieval.retrieve()` → `streamText({ model, system, prompt, tools, stopWhen: stepCountIs(5), experimental_telemetry })`.
+`packages/core/src/chat/chat.service.ts::ask(query, opts)` = `retrieval.retrieve()` → `streamText({ model, system, messages, tools, stopWhen: stepCountIs(5), experimental_telemetry })`. 두 stream(`textStream`, `citationStream`)과 `finish` promise를 묶은 객체를 반환 — 텍스트와 인용이 시간 순으로 별도 채널로 흐른다.
 
 **프롬프트** — `chat/prompt.ts`
 ```
 당신은 국세청 공식 자료를 기반으로 답하는 부가세 신고 어시스턴트다.
 - 제공된 <context> 안의 내용만 근거로 답하라.
-- 모든 주장에 [n] 형태로 인용을 붙여라.
+- 인용은 본문에 [n] 같은 마커를 박지 말고, 반드시 cite_chunk 도구로만 선언하라.
+  - chunkId: <context>의 [chunkId=...] 라벨 값을 그대로 사용.
+  - quote: 해당 chunk 본문에서 그대로 발췌한 30~120자 문장(요약·재작성 금지).
+  - 새로운 주장을 할 때마다 즉시 호출하라. 답변 끝에 몰아서 호출 금지.
 - context에 근거가 없으면 "공식 자료에서 확인되지 않습니다"라고 답하라. 추측 금지.
 - 계산이 필요하면 calc_vat 도구를 사용하라. 직접 산수 금지.
 ```
-`buildSystemMessage(chunks)`이 retrieved chunk 8개를 `[1]~[8]` 번호와 함께 `<context>…</context>`로 포장 → system role로 격리(prompt injection 방어).
+`buildSystemMessage(chunks)`이 retrieved chunk 8개를 `[chunkId=...]` 라벨과 함께 `<context>…</context>`로 포장 → system role로 격리(prompt injection 방어). chunkId는 모델이 cite_chunk 인자로 그대로 복사하는 도메인 키.
 
-`PROMPT_VERSION = "v1"` 상수 — eval_runs.prompt_version 비교 키.
+`PROMPT_VERSION = "v2"` 상수 — eval_runs.prompt_version 비교 키 (v1=inline marker, v2=cite_chunk tool-call).
+
+**Multi-turn context** — `ask`가 `opts.conversationId`를 받으면 `messageRepo.recentTurns(conversationId, 6)`으로 직전 6 messages를 fetch해 `streamText`의 `messages` 배열에 history로 펼친다(`HISTORY_WINDOW`). 옵션 A: generation-only multi-turn — retrieve는 현재 turn의 query만 사용. history-aware retrieval(query rewriting)은 후속(§0.4). eval CLI / `core:ask` CLI는 conversationId 미주입으로 single-turn 동작.
 
 **모델 결정** — adapter 파일 안 단일 상수.
 - `adapters/generation.ts`: `GENERATION_MODEL_ID = "gpt-4o-mini"` (OpenAI provider via `@ai-sdk/openai`)
@@ -202,6 +209,7 @@ LIMIT $k;       -- 기본 k=8
 **Tools** — `chat/tools.ts`
 | 도구 | 구현 |
 |---|---|
+| `cite_chunk({chunkId, quote})` | 인용 선언 채널. execute는 ack만, 인자(chunkId/quote)가 페이로드. chat.service가 fullStream에서 가로채 `quote ⊂ chunk.content` strict 검증 후 `citationStream`으로 emit. 실패 시 drop(환각 차단). |
 | `calc_vat({taxable_amount, rate})` | native number 곱셈(toy). decimal.js 교체는 v2. |
 | `lookup_law_article({article_no})` | **stub** — 국가법령정보센터 어댑터 도입 후 동작 (후속) |
 
@@ -215,19 +223,24 @@ type Citation = {
   docTitle: string; docVersion: string | null;
   sourceUrl: string | null;                              // 원본 PDF 다운로드 앵커
   page: number | null; sectionPath: string | null;
-  snippet: string;                                       // <=240자 모달 미리보기
+  content: string;                                       // chunk 본문 전체 (highlight 좌표 기준)
+  quote: string;                                         // 모델이 발췌한 문장(invariant: content.slice(quoteStart, quoteEnd) === quote)
+  quoteStart: number;                                    // content 내 시작 char index
+  quoteEnd: number;                                      // 끝 char index (exclusive)
 };
 ```
-`toCitation(searchResult)`로 SearchResult → Citation 변환. UI는 `[n]` 클릭 → 모달.
+`toCitation(searchResult, quote, quoteStart)`로 변환 — chat.service의 verify가 `quoteStart`를 계산해 넘기므로 좌표 정합성은 호출자가 보장. quote 3필드는 Anthropic Citations API의 (cited_text, start_char_index, end_char_index) 형태로 자기 충족성·post-hoc 검증 가능성·UI highlight 정밀도를 동시에 확보. UI는 본문 아래 참고 칩 클릭 → 모달에서 `content` + quote 구간 `<mark>` highlight.
 
 ### 3.5 SSE 스트리밍 (apps/web)
 
 `apps/web/app/api/chat/route.ts` → `streamChat()` (`src/pages/chat/server.ts`) → AI SDK `createUIMessageStream`. 클라가 받는 parts:
 - `data-trace` — OTEL trace_id (피드백 score 송출 키)
-- `data-citations` — Citation[] (스트림 시작 직후 박제)
-- `text-start / text-delta / text-end` — 답변 본문 토큰
+- `data-citation` — Citation 1건 (모델이 cite_chunk를 호출하고 verify 통과할 때마다 emit, N건 누적)
+- `text-start / text-delta / text-end` — 답변 본문 토큰 (마커 없음, plain text)
 
-스트림 종료 시 `chat.recordChatTurn()`이 conversations + messages 2건을 단일 transaction에 기록(`MessageRepository.savePair`). persist 실패는 사용자에게 보여진 답변이 이미 있으므로 서버 로그만.
+`streamChat`이 core의 `textStream`/`citationStream`을 `Promise.all`로 병렬 drain. 클라(`entities/message/lib/parts.ts::getCitations`)는 parts에서 `data-citation`들을 모아 chunkId dedup 후 본문 아래 참고 칩으로 렌더 — `[n]` 정규식 파서 없음.
+
+스트림 종료 시 `chat.recordChatTurn()`이 conversations + messages 2건을 단일 transaction에 기록(`MessageRepository.savePair`). `messages.citations` jsonb엔 verify 통과한 누적 list만 박제(환각 차단). persist 실패는 사용자에게 보여진 답변이 이미 있으므로 서버 로그만.
 
 ### 3.6 에러 처리 (시스템 경계만)
 

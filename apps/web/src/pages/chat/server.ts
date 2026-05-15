@@ -43,10 +43,15 @@ export async function streamChat(input: StreamChatInput) {
   // sessionId/traceName을 박는다. streamText는 chat.ask 내부에서 호출되므로 그 시점 context를
   // 캡처해야 — 즉 chat.ask 자체를 감싸야 한다(콜백 종료 후 stream consumption은 컨텍스트
   // 밖이지만, 중요한 건 span CREATION 시점 컨텍스트라 문제 없음).
+  // conversationId를 ask에 주입 — core가 messageRepo.recentTurns로 직전 N messages를
+  // history로 끌어와 multi-turn context 형성. 첫 turn은 history 빈 배열이라 동작 동일.
   const { textStream, citationStream, chunks, finish } =
     await propagateAttributes(
       { sessionId: input.conversationId, traceName: "chat-message" },
-      () => core.chat.ask(input.query),
+      () =>
+        core.chat.ask(input.query, {
+          conversationId: input.conversationId,
+        }),
     );
 
   return createUIMessageStream<ChatUIMessage>({
