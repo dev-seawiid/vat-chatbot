@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.69",
+    "@langfuse/tracing": "^5.3.0",
     "ai": "^6.0.174",
     "drizzle-orm": "^0.36.0",
     "postgres": "^3.4.5",

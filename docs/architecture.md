@@ -50,8 +50,9 @@ type CoreConfig = {
   databaseUrl: string;
   embeddingApiKey: string;
   generationApiKey: string;
-  telemetry?: TelemetrySettings; // web plane만 주입
 };
+// telemetry는 인자가 아니다 — core는 always-emit이고 SpanProcessor 부팅 여부로만 활성/no-op.
+// 자세한 layering 원칙은 docs/observability.md 참고.
 
 type Core = {
   chat: ChatService;

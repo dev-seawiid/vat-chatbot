@@ -1,8 +1,13 @@
 import "server-only";
 
-import { propagateAttributes } from "@langfuse/tracing";
+import { propagateAttributes, setActiveTraceIO } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
-import { type Core, createCore, parseEnv } from "@vat/core";
+import {
+  type Core,
+  createCore,
+  parseEnv,
+  PROMPT_VERSION,
+} from "@vat/core";
 import { createUIMessageStream, type UIMessageStreamWriter } from "ai";
 
 import { type ChatUIMessage } from "@/entities/message";
@@ -23,8 +28,6 @@ function getCore(): Core {
       databaseUrl: env.DATABASE_URL,
       embeddingApiKey: env.VOYAGE_API_KEY,
       generationApiKey: env.OPENAI_API_KEY,
-      // web plane만 OTEL SpanProcessor를 부팅하므로 telemetry 결정도 여기서만.
-      telemetry: { isEnabled: true, functionId: "rag.ask" },
     });
   }
   return globalForCore.__vatCore;
@@ -36,13 +39,23 @@ export async function streamChat(input: StreamChatInput) {
   const traceId = trace.getActiveSpan()?.spanContext().traceId ?? null;
 
   // propagateAttributes는 span CREATION 시점 context를 캡처 — ask 호출 자체를 감싼다.
+  // metadata.promptVersion은 모든 child span에 전파 → Langfuse 대시보드에서 프롬프트 버전별
+  // cohort 비교 가능. setActiveTraceIO는 v5에서 deprecated 마크지만 trace-level input/output을
+  // 박는 유일한 표면 — 대안(root chain span 직접 lifecycle 관리)은 stream 종료 타이밍과
+  // 결합돼 복잡해진다.
   const { textStream, citationStream, chunks, finish } =
     await propagateAttributes(
-      { sessionId: input.conversationId, traceName: "chat-message" },
-      () =>
-        core.chat.ask(input.query, {
+      {
+        sessionId: input.conversationId,
+        traceName: "chat-message",
+        metadata: { promptVersion: PROMPT_VERSION },
+      },
+      () => {
+        setActiveTraceIO({ input: input.query });
+        return core.chat.ask(input.query, {
           conversationId: input.conversationId,
-        }),
+        });
+      },
     );
 
   return createUIMessageStream<ChatUIMessage>({
@@ -74,6 +87,8 @@ export async function streamChat(input: StreamChatInput) {
       await Promise.all([textPump, citationPump]);
 
       const meta = await finish;
+      // 같은 trace의 HTTP root span context에서 호출 — trace output으로 박힘.
+      setActiveTraceIO({ output: meta.text });
       try {
         await core.chat.recordChatTurn({
           conversationId: input.conversationId,

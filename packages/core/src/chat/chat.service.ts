@@ -1,9 +1,10 @@
-import { stepCountIs, streamText, type TelemetrySettings } from "ai";
+import { stepCountIs, streamText } from "ai";
 
 import { type Citation, toCitation } from "../shared/citation";
 import type { GenerationModel } from "../adapters/generation";
 import type { SearchResult } from "../retrieval/chunk.repository";
 import type { RetrievalService, RetrieveOptions } from "../retrieval/retrieval.service";
+import { AI_SDK_TELEMETRY } from "../shared/telemetry";
 import type {
   MessageRepository,
   SavePairArgs,
@@ -79,9 +80,8 @@ export function createChatService(deps: {
   retrieval: RetrievalService;
   generationModel: GenerationModel;
   messageRepo: MessageRepository;
-  telemetry?: TelemetrySettings;
 }) {
-  const { retrieval, generationModel, messageRepo, telemetry } = deps;
+  const { retrieval, generationModel, messageRepo } = deps;
   const { model, modelId } = generationModel;
 
   const ask: AskFn = async (query, opts = {}) => {
@@ -104,7 +104,7 @@ export function createChatService(deps: {
       ],
       tools,
       stopWhen: stepCountIs(5),
-      experimental_telemetry: telemetry,
+      experimental_telemetry: AI_SDK_TELEMETRY,
     });
 
     const textQueue = makeQueue<string>();

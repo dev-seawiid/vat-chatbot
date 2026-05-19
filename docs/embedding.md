@@ -48,29 +48,23 @@ def embed_documents(texts: list[str], ...) -> list[list[float]]:
 
 ## 4. Retrieval (query mode)
 
-`packages/core/src/adapters/embedding.ts`:
-```ts
-const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
-const EMBEDDING_MODEL_ID = "voyage-3";
+`packages/core/src/adapters/embedding.ts` — `startActiveObservation('voyage.embed', { asType: 'embedding' })`로 감싸 model + Voyage 응답 `usage.total_tokens`를 박는다. Langfuse가 model + usageDetails로 cost 환산(voyage-3 단가는 대시보드에 1회 등록).
 
-export function createEmbeddingModel({ apiKey }) {
-  const embed: EmbedFn = async (text, opts) => {
-    const res = await fetch(VOYAGE_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, ... },
-      body: JSON.stringify({
-        input: [text],
-        model: EMBEDDING_MODEL_ID,
-        input_type: opts.input_type,  // "query"
-      }),
-    });
-    // ...
-  };
-  return { embed, modelId: EMBEDDING_MODEL_ID };
-}
+```ts
+const embed: EmbedFn = (text, opts) =>
+  startActiveObservation("voyage.embed", async (obs) => {
+    obs.update({ input: text, model: "voyage-3", metadata: { input_type: opts.input_type } });
+    const res = await fetch(VOYAGE_URL, { /* ... input_type: "query" ... */ });
+    const parsed = VoyageResponseSchema.parse(await res.json());
+    if (parsed.usage) {
+      const t = parsed.usage.total_tokens;
+      obs.update({ usageDetails: { input: t, total: t } });
+    }
+    return parsed.data[0]!.embedding;
+  }, { asType: "embedding" });
 ```
 
-호출 위치: `RetrievalService.retrieve(query, opts)` 안에서 `embed(query, { input_type: "query" })` → 결과 vector를 `ChunkRepository.search`에 넘김. 자세한 흐름은 [retrieval.md](./retrieval.md).
+호출 위치: `RetrievalService.retrieve(query, opts)` 안에서 `embed(query, { input_type: "query" })` → 결과 vector를 `ChunkRepository.search`에 넘김. retrieve 전체가 `retriever` span으로 감싸지고 그 안에 `embedding`/`pgvector.search` 두 child가 박힌다. 자세한 흐름은 [retrieval.md](./retrieval.md), trace 스키마는 [observability.md §4](./observability.md#4-trace-스키마).
 
 ## 5. 모델 교체 시 절차
 

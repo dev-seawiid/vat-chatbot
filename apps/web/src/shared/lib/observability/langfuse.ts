@@ -8,4 +8,11 @@ import { LangfuseSpanProcessor } from "@langfuse/otel";
 // 환경변수(LANGFUSE_PUBLIC_KEY/SECRET_KEY/BASE_URL)는 LangfuseSpanProcessor가 직접 읽는다.
 // 미설정 시에도 인스턴스 생성 자체는 성공하고, export 시점에 키 부재로 spans drop. 즉
 // dev에서 Langfuse 미연결 상태로 앱이 동작하는 것을 막지 않는다.
-export const langfuseSpanProcessor = new LangfuseSpanProcessor();
+//
+// environment는 Vercel 자동주입(VERCEL_ENV='production'|'preview'|'development')을 1차로,
+// 로컬은 NODE_ENV. dev/preview/prod trace가 같은 Langfuse 프로젝트로 들어와도 dashboard에서
+// 분리 필터링 가능.
+export const langfuseSpanProcessor = new LangfuseSpanProcessor({
+  environment:
+    process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
+});

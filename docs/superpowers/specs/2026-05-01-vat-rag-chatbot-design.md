@@ -263,7 +263,13 @@ type Citation = {
 
 부트스트랩 — `apps/web/instrumentation.ts` → `instrumentation.node.ts`에서 `NodeSDK({ spanProcessors: [langfuseSpanProcessor] }).start()`. Edge runtime 비호환이므로 `/api/chat` 라우트는 nodejs runtime.
 
-호출측 — `chat.service.ts`가 `experimental_telemetry: { isEnabled: true, functionId: 'rag.ask' }` 주입(`CoreConfig.telemetry`로 web plane만 활성, CLI는 미주입). `streamChat`이 `propagateAttributes({ sessionId: conversationId, traceName: 'chat-message' })`로 ask 전체 감싸 메타 전파.
+**Layering 원칙** — 외부 I/O와 가장 가까운 함수가 그 호출의 span을 만든다. AI SDK처럼 framework가 instrumentor 역할을 하면 위임, 자동 instrumentor가 없는 외부 I/O(Voyage HTTP, postgres-js)는 adapter/repository에서 직접 emit, 도메인 의미가 있는 묶음(RAG retrieval)은 service에서 emit. trace-level attribute(sessionId/userId/metadata/input/output)는 호출자(apps/web)가 박는다. core는 always-emit이며 plane이 SpanProcessor를 부팅했는지로 활성/비활성이 결정된다 — 인자 prop drill 없음(Langfuse 공식 권장).
+
+호출측 — `streamChat`이 `propagateAttributes({ sessionId, traceName: 'chat-message', metadata: { promptVersion } })`로 ask 전체 감싸 메타 전파 + `setActiveTraceIO({ input: query })`로 trace input/output 박제(output은 stream 종료 후 동일 호출). `chat.service.ts`는 `AI_SDK_TELEMETRY`(always-on) 상수를 `streamText`에 주입.
+
+core 내부 — `packages/core/src/shared/telemetry/`가 `@langfuse/tracing` 진입점 단일점. 도메인 코드(adapters/repository/service)는 `withEmbeddingSpan` · `withRetrieverSpan` · `withSpan` helper만 사용해 SDK 결합을 한 모듈에 가둔다. `LangfuseSpanProcessor` 미부팅 process(CLI)에서는 no-op tracer로 자동 무동작.
+
+environment 분리 — `LangfuseSpanProcessor({ environment: VERCEL_ENV ?? NODE_ENV })`로 dev/preview/production trace를 dashboard에서 필터링.
 
 서버리스 flush — `app/api/chat/route.ts`의 `after(() => langfuseSpanProcessor.forceFlush())`로 응답 종료 후 명시 export.
 
@@ -271,15 +277,26 @@ env — `LANGFUSE_PUBLIC_KEY` · `LANGFUSE_SECRET_KEY` · `LANGFUSE_BASEURL`. `L
 
 ### 4.2 Trace 스키마
 ```
-trace (root: traceName='chat-message', sessionId=conversation_id)
+trace (root: traceName='chat-message', sessionId=conversation_id,
+       metadata.promptVersion, environment, input=query, output=text)
+├─ retriever: retrieval                               — core 직접 emit
+│    input: { query, k, filter }
+│    output: { count, topSimilarity, contexts:[{ chunkId, docTitle, page, similarity, content }] }
+│    ├─ embedding: voyage.embed                       — core 직접 emit
+│    │    model='voyage-3', usageDetails:{ input, total }, metadata.input_type
+│    └─ span: pgvector.search                         — core 직접 emit
+│         input:{ k, filter, dim }, output:{ hitCount, topSimilarity }
 ├─ generation: ai.streamText (functionId='rag.ask')   — AI SDK 자동
 │    input: { system, context, query }
 │    output: { text }
 │    usage: { input_tokens, output_tokens }
 ├─ span: ai.toolCall.calc_vat (옵션)                  — AI SDK 자동
+├─ span: ai.toolCall.cite_chunk (옵션, N건)           — AI SDK 자동
 └─ score (피드백 도착 시 별도 호출 — @langfuse/client REST)
      name="user-thumbs", value=1|-1, traceId=messages.trace_id
 ```
+
+Voyage-3 가격은 Langfuse default pricing list 비포함 — 대시보드 Models에서 1회 등록(input USD/token만, output 없음).
 `messages.trace_id`(OTEL trace_id 32-hex)가 score attach 키.
 
 ### 4.3 핵심 메트릭

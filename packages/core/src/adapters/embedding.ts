@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+import { setEmbeddingUsage, traceEmbedding } from "../shared/telemetry";
+
 // 임베딩 모델 어댑터. 생성 모델(adapters/generation.ts)과 별개 — RAG의 두 모델 역할이
 // 섞이지 않도록 파일·타입·팩토리를 분리한다.
 //
@@ -10,6 +14,16 @@
 
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 const EMBEDDING_MODEL_ID = "voyage-3";
+
+// usage는 응답에 항상 포함되지만 SDK 보장 없이 fetch 직접 호출이라 optional로 방어.
+const VoyageResponseSchema = z.object({
+  data: z
+    .array(z.object({ embedding: z.array(z.number()) }))
+    .min(1),
+  usage: z
+    .object({ total_tokens: z.number().int().nonnegative() })
+    .optional(),
+});
 
 export type InputType = "query" | "document";
 
@@ -28,31 +42,41 @@ export function createEmbeddingModel({
 }: {
   apiKey: string;
 }): EmbeddingModel {
-  const embed: EmbedFn = async (text, opts) => {
-    const res = await fetch(VOYAGE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        input: [text],
+  const embed: EmbedFn = traceEmbedding(
+    {
+      name: "voyage.embed",
+      attrs: ([text, opts]) => ({
+        input: text,
         model: EMBEDDING_MODEL_ID,
-        // spec §3.1·§3.2 — ingest는 "document", retrieval은 "query".
-        // Voyage가 두 모드를 다르게 학습해 모드를 섞으면 검색 품질이 떨어짐.
-        input_type: opts.input_type,
+        metadata: { input_type: opts.input_type },
       }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`embed failed: ${res.status} ${body}`);
-    }
-    const data = (await res.json()) as { data: { embedding: number[] }[] };
-    if (!data.data?.[0]?.embedding) {
-      throw new Error("embed returned empty data");
-    }
-    return data.data[0].embedding;
-  };
+      // embedding vector는 길고 trace UI에 가치 없음 — 길이만 남김.
+      output: (embedding) => ({ dim: embedding.length }),
+    },
+    async (text, opts) => {
+      const res = await fetch(VOYAGE_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          input: [text],
+          model: EMBEDDING_MODEL_ID,
+          // spec §3.1·§3.2 — ingest는 "document", retrieval은 "query".
+          // Voyage가 두 모드를 다르게 학습해 모드를 섞으면 검색 품질이 떨어짐.
+          input_type: opts.input_type,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`embed failed: ${res.status} ${body}`);
+      }
+      const parsed = VoyageResponseSchema.parse(await res.json());
+      if (parsed.usage) setEmbeddingUsage(parsed.usage.total_tokens);
+      return parsed.data[0]!.embedding;
+    },
+  );
 
   return { embed, modelId: EMBEDDING_MODEL_ID };
 }

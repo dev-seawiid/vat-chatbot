@@ -1,5 +1,3 @@
-import type { TelemetrySettings } from "ai";
-
 import { createDb } from "./db/client";
 import { createEmbeddingModel } from "./adapters/embedding";
 import { createGenerationModel } from "./adapters/generation";
@@ -21,14 +19,14 @@ import {
 // 본 파일은 "wiring만" — provider/모델/스키마 결정은 각 모듈(providers/*, db/*) 책임.
 // 외부 표면(Core)에는 service만 노출하고 repository는 service deps로만 흘려보낸다.
 // controller(apps/web route handler, eval CLI)는 core.<service>.<usecase>() 형태로만 호출.
+//
+// telemetry: core는 always-emit (Langfuse 공식 권장). 활성화는 plane이 SpanProcessor를
+// 부팅했는지로 결정되며 core 인자가 아니다. CLI는 미부팅이라 자동 no-op.
 
 export type CoreConfig = {
   databaseUrl: string;
   embeddingApiKey: string;
   generationApiKey: string;
-  /** AI SDK telemetry — OTEL SpanProcessor를 부팅한 plane만 활성화. 미전달 시 spans 미발생.
-   *  apps/web은 `{ isEnabled: true, functionId: 'rag.ask' }` 주입, CLI는 기본 미주입. */
-  telemetry?: TelemetrySettings;
 };
 
 export type Core = {
@@ -59,7 +57,6 @@ export function createCore(config: CoreConfig): Core {
     retrieval,
     generationModel,
     messageRepo,
-    telemetry: config.telemetry,
   });
   const evalService = createEvalService({ evalRepo });
 

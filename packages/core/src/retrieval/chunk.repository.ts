@@ -1,6 +1,7 @@
 import { cosineDistance, eq, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client";
+import { traceSpan } from "../shared/telemetry";
 import { chunks, documents } from "./schema";
 
 // spec §2.1 — chunks aggregate에 대한 Repository. Drizzle 객체 + SQL을 외부에 노출하지 않고
@@ -37,18 +38,28 @@ export type SearchResult = {
 export type ChunkRepository = ReturnType<typeof createChunkRepository>;
 
 export function createChunkRepository(db: Db) {
-  return {
-    /**
-     * spec §3.2 retrieval — pgvector cosineDistance(<=>) top-k + tax_type 메타 필터.
-     * version 가중·최신 우선은 의도적으로 builder 밖에 둠(generation 단 정책).
-     * documents JOIN으로 인용 모달 표시에 필요한 docTitle·docVersion까지 한 번에 반환.
-     * Drizzle builder가 SELECT alias를 객체 키로 자동 매핑 → 도메인은 camelCase 유지.
-     */
-    async search({
+  /**
+   * spec §3.2 retrieval — pgvector cosineDistance(<=>) top-k + tax_type 메타 필터.
+   * version 가중·최신 우선은 의도적으로 builder 밖에 둠(generation 단 정책).
+   * documents JOIN으로 인용 모달 표시에 필요한 docTitle·docVersion까지 한 번에 반환.
+   * Drizzle builder가 SELECT alias를 객체 키로 자동 매핑 → 도메인은 camelCase 유지.
+   */
+  const search = traceSpan(
+    {
+      name: "pgvector.search",
+      attrs: ([{ embedding, k = 8, filter }]) => ({
+        input: { k, filter: filter ?? null, dim: embedding.length },
+      }),
+      output: (rows) => ({
+        hitCount: rows.length,
+        topSimilarity: rows[0]?.similarity ?? null,
+      }),
+    },
+    async ({
       embedding,
       k = 8,
       filter,
-    }: SearchOptions): Promise<SearchResult[]> {
+    }: SearchOptions): Promise<SearchResult[]> => {
       const distance = cosineDistance(chunks.embedding, embedding);
       const taxType = filter?.taxType ?? null;
 
@@ -76,5 +87,7 @@ export function createChunkRepository(db: Db) {
         .orderBy(distance)
         .limit(k) as Promise<SearchResult[]>;
     },
-  };
+  );
+
+  return { search };
 }
