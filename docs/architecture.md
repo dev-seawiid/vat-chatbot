@@ -16,12 +16,13 @@ VAT RAG 챗봇의 모듈 경계, 의존 방향, 데이터 모델, plane 간 cont
 ┌──────────────────────────────────────────────┐
 │ packages/core  (도메인 lib, TS)              │
 │  core.ts        composition root             │
-│  chat/          ChatService + MessageRepo    │
-│  retrieval/     RetrievalService + ChunkRepo │
-│  eval/          EvalService + EvalRepo       │
-│  adapters/      embedding(voyage) · gen(oai) │
-│  db/client.ts   drizzle + postgres-js        │
-│  shared/        citation 도메인 타입         │
+│  common/        citation, telemetry          │
+│  modules/                                    │
+│    chat/        ChatService+Repo+gen.adapter │
+│    retrieval/   RetrievalSvc+Repo+embed.adp  │
+│    eval/        EvalService + EvalRepo       │
+│  database/      drizzle + postgres-js        │
+│  (alias: #common/* · #modules/* · #database/*)│
 └──────────────────┬───────────────────────────┘
                    │ Neon Postgres + pgvector (HNSW)
                    ▲

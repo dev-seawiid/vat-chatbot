@@ -1,4 +1,4 @@
-import type { SearchResult } from "../retrieval/chunk.repository";
+import type { SearchResult } from "#modules/retrieval/chunk.repository";
 
 // eval_runs.prompt_version 비교 키. v1=inline marker, v2=cite_chunk tool-call.
 export const PROMPT_VERSION = "v2";

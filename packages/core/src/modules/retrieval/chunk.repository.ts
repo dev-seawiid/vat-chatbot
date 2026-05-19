@@ -1,7 +1,8 @@
 import { cosineDistance, eq, sql } from "drizzle-orm";
 
-import type { Db } from "../db/client";
-import { traceSpan } from "../shared/telemetry";
+import { traceSpan } from "#common/telemetry";
+import type { Db } from "#database/client";
+
 import { chunks, documents } from "./schema";
 
 // spec §2.1 — chunks aggregate에 대한 Repository. Drizzle 객체 + SQL을 외부에 노출하지 않고

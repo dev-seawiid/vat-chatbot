@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { setEmbeddingUsage, traceEmbedding } from "../shared/telemetry";
+import { setEmbeddingUsage, traceEmbedding } from "#common/telemetry";
 
 // 임베딩 모델 어댑터. 생성 모델(adapters/generation.ts)과 별개 — RAG의 두 모델 역할이
 // 섞이지 않도록 파일·타입·팩토리를 분리한다.

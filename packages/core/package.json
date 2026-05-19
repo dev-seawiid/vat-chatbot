@@ -7,6 +7,11 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "imports": {
+    "#common/*": "./src/common/*.ts",
+    "#modules/*": "./src/modules/*.ts",
+    "#database/*": "./src/database/*.ts"
+  },
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

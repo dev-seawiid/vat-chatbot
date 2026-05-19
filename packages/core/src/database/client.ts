@@ -1,9 +1,9 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-import * as chatSchema from "../chat/schema";
-import * as evalSchema from "../eval/schema";
-import * as retrievalSchema from "../retrieval/schema";
+import * as chatSchema from "#modules/chat/schema";
+import * as evalSchema from "#modules/eval/schema";
+import * as retrievalSchema from "#modules/retrieval/schema";
 
 // 도메인 모듈별 schema를 한 객체로 합쳐 drizzle에 주입 — 타입 추론(`Db`)이
 // 모든 테이블을 인식하도록 wiring은 본 파일이 소유.

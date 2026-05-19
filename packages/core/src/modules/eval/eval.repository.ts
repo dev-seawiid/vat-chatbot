@@ -1,6 +1,7 @@
 import { desc, sql } from "drizzle-orm";
 
-import type { Db } from "../db/client";
+import type { Db } from "#database/client";
+
 import { evalItems, evalRuns } from "./schema";
 
 // spec §4 eval — eval_items(골든셋 보조 인덱스) + eval_runs(실행 결과) 두 aggregate를 묶어

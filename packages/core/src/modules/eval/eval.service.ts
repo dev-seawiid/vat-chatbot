@@ -6,7 +6,7 @@ import {
   score,
   weighted,
 } from "./scoring";
-import type { AskFn } from "../chat/chat.service";
+import type { AskFn } from "#modules/chat/chat.service";
 import type {
   EvalItem,
   EvalRepository,

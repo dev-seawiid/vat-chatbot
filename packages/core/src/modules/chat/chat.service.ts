@@ -1,10 +1,14 @@
 import { stepCountIs, streamText } from "ai";
 
-import { type Citation, toCitation } from "../shared/citation";
-import type { GenerationModel } from "../adapters/generation";
-import type { SearchResult } from "../retrieval/chunk.repository";
-import type { RetrievalService, RetrieveOptions } from "../retrieval/retrieval.service";
-import { AI_SDK_TELEMETRY } from "../shared/telemetry";
+import { type Citation, toCitation } from "#common/citation";
+import { AI_SDK_TELEMETRY } from "#common/telemetry";
+import type { SearchResult } from "#modules/retrieval/chunk.repository";
+import type {
+  RetrievalService,
+  RetrieveOptions,
+} from "#modules/retrieval/retrieval.service";
+
+import type { GenerationModel } from "./generation.adapter";
 import type {
   MessageRepository,
   SavePairArgs,

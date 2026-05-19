@@ -1,15 +1,15 @@
-import { createDb } from "./db/client";
-import { createEmbeddingModel } from "./adapters/embedding";
-import { createGenerationModel } from "./adapters/generation";
-import { type ChatService, createChatService } from "./chat/chat.service";
-import { createMessageRepository } from "./chat/message.repository";
-import { createEvalRepository } from "./eval/eval.repository";
-import { createEvalService, type EvalService } from "./eval/eval.service";
-import { createChunkRepository } from "./retrieval/chunk.repository";
+import { createDb } from "#database/client";
+import { type ChatService, createChatService } from "#modules/chat/chat.service";
+import { createGenerationModel } from "#modules/chat/generation.adapter";
+import { createMessageRepository } from "#modules/chat/message.repository";
+import { createEvalRepository } from "#modules/eval/eval.repository";
+import { createEvalService, type EvalService } from "#modules/eval/eval.service";
+import { createChunkRepository } from "#modules/retrieval/chunk.repository";
+import { createEmbeddingModel } from "#modules/retrieval/embedding.adapter";
 import {
   createRetrievalService,
   type RetrievalService,
-} from "./retrieval/retrieval.service";
+} from "#modules/retrieval/retrieval.service";
 
 // composition root — 모든 외부 의존(DB, 임베딩 모델, 생성 모델)을 한 곳에서 묶는다.
 // 라이브러리 모듈은 어떤 모듈도 process.env를 직접 읽지 않고, 본 factory의 인자로만

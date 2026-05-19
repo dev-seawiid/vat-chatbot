@@ -1,5 +1,6 @@
-import type { EmbedFn } from "../adapters/embedding";
-import { traceRetriever } from "../shared/telemetry";
+import { traceRetriever } from "#common/telemetry";
+
+import type { EmbedFn } from "./embedding.adapter";
 import type {
   ChunkRepository,
   SearchFilter,

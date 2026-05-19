@@ -8,7 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import type { Citation } from "../shared/citation";
+import type { Citation } from "#common/citation";
 
 export const conversations = pgTable("conversations", {
   id: uuid().primaryKey().defaultRandom(),

@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 
-import type { Citation } from "../shared/citation";
-import type { Db } from "../db/client";
+import type { Citation } from "#common/citation";
+import type { Db } from "#database/client";
+
 import { conversations, messages } from "./schema";
 
 export type SavePairArgs = {

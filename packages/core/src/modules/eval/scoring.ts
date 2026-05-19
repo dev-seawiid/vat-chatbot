@@ -1,4 +1,4 @@
-import type { Citation } from "../shared/citation";
+import type { Citation } from "#common/citation";
 
 /**
  * 2026-05-07 eval 슬라이스 §6 — 결정적 4축 채점. 부수효과 없는 순수 함수라 단위 테스트가 쉽고

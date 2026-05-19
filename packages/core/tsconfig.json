@@ -8,7 +8,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "#common/*": ["./src/common/*"],
+      "#modules/*": ["./src/modules/*"],
+      "#database/*": ["./src/database/*"]
+    }
   },
   "include": ["src/**/*", "scripts/**/*", "drizzle.config.ts"]
 }
