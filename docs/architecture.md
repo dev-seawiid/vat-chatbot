@@ -20,7 +20,6 @@ VAT RAG 챗봇의 모듈 경계, 의존 방향, 데이터 모델, plane 간 cont
 │  modules/                                    │
 │    chat/        ChatService+Repo+gen.adapter │
 │    retrieval/   RetrievalSvc+Repo+embed.adp  │
-│    eval/        EvalService + EvalRepo       │
 │  database/      drizzle + postgres-js        │
 │  (alias: #common/* · #modules/* · #database/*)│
 └──────────────────┬───────────────────────────┘
@@ -58,17 +57,16 @@ type CoreConfig = {
 type Core = {
   chat: ChatService;
   retrieval: RetrievalService;
-  eval: EvalService;
   embeddingModelId: string;
   close: () => Promise<void>;
 };
 ```
 
-service만 표면 노출, repository는 service deps로만 흐름. controller(web route, eval CLI)는 `core.<service>.<usecase>()` 형태로만 호출.
+service만 표면 노출, repository는 service deps로만 흐름. evaluation은 별도 plane(`jobs/ragas-eval`)이 owns — core는 `ask()` library만 빌려준다.
 
 ## 4. 데이터 모델
 
-PostgreSQL + pgvector. Drizzle ORM이 스키마 단일 진실 (`packages/core/src/{chat,retrieval,eval}/schema.ts`). Python plane은 `jobs/ingest/src/ingest/load/db/models.py`에 같은 스키마를 SQLAlchemy로 mirror하되 `create_all` 호출하지 않음 (마이그레이션 진실은 Drizzle).
+PostgreSQL + pgvector. Drizzle ORM이 스키마 단일 진실 (`packages/core/src/modules/{chat,retrieval}/schema.ts`). Python plane은 `jobs/ingest/src/ingest/load/db/models.py`에 같은 스키마를 SQLAlchemy로 mirror하되 `create_all` 호출하지 않음 (마이그레이션 진실은 Drizzle).
 
 ```sql
 documents (
@@ -110,28 +108,9 @@ messages (
   trace_id             text,
   created_at           timestamptz NOT NULL
 )
-
-eval_items (
-  id                    text PK,  -- 슬러그 자연키
-  question              text NOT NULL,
-  expected_keywords     text[] NOT NULL,
-  expected_citation_doc text NOT NULL,
-  category, difficulty, tax_type  text NOT NULL,
-  updated_at            timestamptz NOT NULL
-)
-
-eval_runs (
-  id                uuid PK,
-  ran_at            timestamptz NOT NULL,
-  model             text NOT NULL,
-  embedding_model   text NOT NULL,
-  retrieval_k       int  NOT NULL,
-  prompt_version    text,
-  goldenset_version text NOT NULL,
-  results           jsonb NOT NULL,
-  summary           jsonb NOT NULL
-)
 ```
+
+평가는 별도 DB 적재 없음 — `jobs/ragas-eval/` plane이 RAGAS sidecar로 채점, 결과는 stdout/csv. 영속화는 Langfuse 후속.
 
 `chunks.metadata` jsonb의 키는 ingest plane(Python)이 정한 snake. SQL 내부 키이므로 TS 도메인 표면(camel)과 격리.
 

@@ -57,7 +57,7 @@ chat.service.ts::ask(query, opts)
 
 `chunkId` 라벨이 도메인 키 — 모델이 `cite_chunk` 인자로 그대로 복사. retrieved chunks를 system role에 격리해 사용자 입력이 `</context>` 같은 구분자를 포함해도 prompt injection 차단.
 
-**`PROMPT_VERSION = "v2"`** — `eval_runs.promptVersion` 비교 키. v1=inline `[n]` 마커, v2=cite_chunk tool-call.
+**`PROMPT_VERSION = "v2"`** — 평가 run의 비교 키. v1=inline `[n]` 마커, v2=cite_chunk tool-call.
 
 ## 3. 모델 결정
 
@@ -112,7 +112,7 @@ native number 곱셈. `decimal.js` 교체는 후속.
 type Citation = {
   chunkId: string;
   docId: string;
-  sourceId: string;            // sources.json 자연키 — 채점 citationCorrect 비교 키
+  sourceId: string;            // sources.json 자연키 — citation 추적·UI 표시용
   docTitle: string;
   docVersion: string | null;
   sourceUrl: string | null;    // UI "원본 PDF 다운로드" 앵커

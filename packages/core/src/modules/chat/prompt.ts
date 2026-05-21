@@ -1,6 +1,6 @@
 import type { SearchResult } from "#modules/retrieval/chunk.repository";
 
-// eval_runs.prompt_version 비교 키. v1=inline marker, v2=cite_chunk tool-call.
+// 평가 run 비교 키. v1=inline marker, v2=cite_chunk tool-call.
 export const PROMPT_VERSION = "v2";
 
 export const SYSTEM_PROMPT = `당신은 국세청 공식 자료를 기반으로 답하는 부가세 신고 어시스턴트다.

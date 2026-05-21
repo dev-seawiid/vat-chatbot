@@ -1,7 +1,7 @@
-# 골든셋 평가 — W3 슬라이스 설계
+# 골든셋 평가 — W3 슬라이스 설계 (SUPERSEDED)
 
-작성: 2026-05-07 · 최종 갱신: 2026-05-14 (구현 정렬)
-상태: 구현 완료
+작성: 2026-05-07 · 최종 갱신: 2026-05-14
+상태: **2026-05-19에 [RAGAS Phase 1](./2026-05-19-rag-eval-ragas-phase1-design.md)로 대체.** 본 문서의 결정적 4축(`keywordRecall`/`citationPresent`/`citationCorrect`/`noHallucination`) + `expected_keywords`/`expected_citation_doc` + `EXPECTED_DISTRIBUTION`은 표준 정합성 부족으로 모두 폐기됨. 아래 내용은 history 보존용.
 저자: dev-seawiid
 관련: [2026-05-01-vat-rag-chatbot-design.md](./2026-05-01-vat-rag-chatbot-design.md) §4.4
 

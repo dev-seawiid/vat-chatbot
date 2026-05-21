@@ -5,29 +5,33 @@ import { createCore, parseEnv } from "../src";
 // 사용:
 //   pnpm core:ask "간이과세자 신고는 어떻게 해야 하나요?"
 //   pnpm core:ask "..." --tax_type=vat-simplified --k=6
+//   pnpm core:ask "..." --json   # stdout 마지막 줄에 {"answer","contexts"} 한 줄 (ragas-eval 브릿지)
 
 type Args = {
   query: string;
   taxType?: string;
   k: number;
+  json: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   let taxType: string | undefined;
   let k = 8;
+  let json = false;
   for (const a of argv) {
     if (a.startsWith("--tax_type=")) taxType = a.slice("--tax_type=".length);
     else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
+    else if (a === "--json") json = true;
     else positional.push(a);
   }
   if (positional.length === 0) {
     console.error(
-      'Usage: pnpm core:ask "<question>" [--tax_type=<value>] [--k=<n>]',
+      'Usage: pnpm core:ask "<question>" [--tax_type=<value>] [--k=<n>] [--json]',
     );
     process.exit(1);
   }
-  return { query: positional.join(" "), taxType, k };
+  return { query: positional.join(" "), taxType, k, json };
 }
 
 async function main(): Promise<void> {
@@ -39,25 +43,30 @@ async function main(): Promise<void> {
   });
 
   try {
-    const { query, taxType, k } = parseArgs(process.argv.slice(2));
+    const { query, taxType, k, json } = parseArgs(process.argv.slice(2));
     const filter = taxType ? { taxType } : undefined;
 
-    console.log(`\nQuery   : ${query}`);
-    console.log(`k       : ${k}`);
-    console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+    // --json 모드: 인간용 출력은 전부 stderr로, stdout은 마지막 한 줄 JSON만.
+    const log = json ? console.error : console.log;
 
-    const { textStream, citationStream, finish } = await core.chat.ask(query, {
-      k,
-      filter,
-    });
+    log(`\nQuery   : ${query}`);
+    log(`k       : ${k}`);
+    log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+
+    const { textStream, citationStream, chunks, finish } = await core.chat.ask(
+      query,
+      { k, filter },
+    );
 
     const textPump = (async () => {
-      console.log("--- answer ---");
-      for await (const chunk of textStream) process.stdout.write(chunk);
-      console.log("\n--------------\n");
+      log("--- answer ---");
+      for await (const chunk of textStream) {
+        if (json) void chunk;
+        else process.stdout.write(chunk);
+      }
+      log("\n--------------\n");
     })();
 
-    // citation은 본문 어느 시점에 선언됐는지 stderr에 흐리게 출력.
     const citationPump = (async () => {
       for await (const c of citationStream) {
         console.error(
@@ -69,19 +78,27 @@ async function main(): Promise<void> {
     await Promise.all([textPump, citationPump]);
 
     const meta = await finish;
-    console.log(
+    log(
       `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}  model=${meta.model}\n`,
     );
 
-    console.log("--- citations (verified) ---");
+    log("--- citations (verified) ---");
     for (let i = 0; i < meta.citations.length; i++) {
       const c = meta.citations[i];
-      console.log(
+      log(
         `[${i + 1}] ${c.docTitle}${c.docVersion ? ` · ${c.docVersion}` : ""}${
           c.page != null ? ` · p.${c.page}` : ""
         }`,
       );
-      if (c.sectionPath) console.log(`    ${c.sectionPath}`);
+      if (c.sectionPath) log(`    ${c.sectionPath}`);
+    }
+
+    if (json) {
+      const payload = {
+        answer: meta.text,
+        contexts: chunks.map((c) => c.content),
+      };
+      process.stdout.write(JSON.stringify(payload) + "\n");
     }
   } finally {
     await core.close();

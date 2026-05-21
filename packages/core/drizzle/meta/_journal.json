@@ -8,6 +8,20 @@
       "when": 1778239015669,
       "tag": "0000_brainy_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779725000000,
+      "tag": "0001_drop_eval_items_legacy_labels",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779726000000,
+      "tag": "0002_drop_eval_tables",
+      "breakpoints": true
     }
   ]
 }

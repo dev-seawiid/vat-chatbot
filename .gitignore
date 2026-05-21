@@ -11,6 +11,8 @@ node_modules/
 # Local cache (downloaded PDFs, derived artifacts)
 .cache/
 
+.tmp/
+
 # OS
 .DS_Store
 

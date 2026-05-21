@@ -110,7 +110,7 @@ CLI(`scripts/retrieve.ts`)와 `ChatService.ask` 둘 다 본 service를 호출.
 ## 7. 호출 위치
 
 - **chat.service.ts::ask** — 사용자 질문 처리. retrieve(query, { k, filter }) → chunks → buildSystemMessage. [generation.md](./generation.md).
-- **eval.service.ts::runOne** — 골든셋 채점 시 retrieve.k 옵션을 `eval_runs.retrievalK`에 박제.
+- **jobs/ragas-eval/scripts/run_eval.py** — 골든셋 채점 시 retrieve.k 옵션을 평가 입력에 박제.
 - **scripts/retrieve.ts** — CLI 단독 검색 (디버깅용).
 
 ## 8. Multi-turn 영향

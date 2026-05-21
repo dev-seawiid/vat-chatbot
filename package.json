@@ -19,7 +19,8 @@
     "ingest:all": "pnpm -F @vat/ingest run all",
     "core:query": "pnpm -F @vat/core query",
     "core:ask": "pnpm -F @vat/core ask",
-    "eval:run": "pnpm -F @vat/core eval:run",
+    "ragas-eval:sync": "pnpm -F @vat/ragas-eval run sync",
+    "ragas-eval:eval": "pnpm -F @vat/ragas-eval run eval",
     "web:dev": "pnpm -F @vat/web dev",
     "web:build": "pnpm -F @vat/web build",
     "web:lint": "pnpm -F @vat/web lint"

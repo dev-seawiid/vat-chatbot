@@ -2,8 +2,6 @@ import { createDb } from "#database/client";
 import { type ChatService, createChatService } from "#modules/chat/chat.service";
 import { createGenerationModel } from "#modules/chat/generation.adapter";
 import { createMessageRepository } from "#modules/chat/message.repository";
-import { createEvalRepository } from "#modules/eval/eval.repository";
-import { createEvalService, type EvalService } from "#modules/eval/eval.service";
 import { createChunkRepository } from "#modules/retrieval/chunk.repository";
 import { createEmbeddingModel } from "#modules/retrieval/embedding.adapter";
 import {
@@ -11,17 +9,8 @@ import {
   type RetrievalService,
 } from "#modules/retrieval/retrieval.service";
 
-// composition root — 모든 외부 의존(DB, 임베딩 모델, 생성 모델)을 한 곳에서 묶는다.
-// 라이브러리 모듈은 어떤 모듈도 process.env를 직접 읽지 않고, 본 factory의 인자로만
-// config를 받는다. 소비자(consumer)는 자기 plane의 env에서 값을 추출해 createCore에
-// 넘기는 것이 boundary 책임.
-//
-// 본 파일은 "wiring만" — provider/모델/스키마 결정은 각 모듈(providers/*, db/*) 책임.
-// 외부 표면(Core)에는 service만 노출하고 repository는 service deps로만 흘려보낸다.
-// controller(apps/web route handler, eval CLI)는 core.<service>.<usecase>() 형태로만 호출.
-//
-// telemetry: core는 always-emit (Langfuse 공식 권장). 활성화는 plane이 SpanProcessor를
-// 부팅했는지로 결정되며 core 인자가 아니다. CLI는 미부팅이라 자동 no-op.
+// composition root — chat·retrieval 두 도메인의 외부 의존을 묶는다. evaluation은 jobs/ragas-eval
+// consumer plane이 owns — core는 ask·retrieve library만 제공.
 
 export type CoreConfig = {
   databaseUrl: string;
@@ -32,10 +21,7 @@ export type CoreConfig = {
 export type Core = {
   chat: ChatService;
   retrieval: RetrievalService;
-  eval: EvalService;
-  /** eval_runs 라벨링 등에서 사용 — 어느 임베딩 모델로 적재·검색했는지 박제. */
   embeddingModelId: string;
-  /** 프로세스 종료 시 명시 호출 (CLI). web request lifecycle에선 미호출이 정상. */
   close: () => Promise<void>;
 };
 
@@ -44,7 +30,6 @@ export function createCore(config: CoreConfig): Core {
 
   const chunkRepo = createChunkRepository(db);
   const messageRepo = createMessageRepository(db);
-  const evalRepo = createEvalRepository(db);
 
   const embeddingModel = createEmbeddingModel({ apiKey: config.embeddingApiKey });
   const generationModel = createGenerationModel({ apiKey: config.generationApiKey });
@@ -58,12 +43,10 @@ export function createCore(config: CoreConfig): Core {
     generationModel,
     messageRepo,
   });
-  const evalService = createEvalService({ evalRepo });
 
   return {
     chat,
     retrieval,
-    eval: evalService,
     embeddingModelId: embeddingModel.modelId,
     close,
   };

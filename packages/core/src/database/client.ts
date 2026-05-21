@@ -2,12 +2,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import * as chatSchema from "#modules/chat/schema";
-import * as evalSchema from "#modules/eval/schema";
 import * as retrievalSchema from "#modules/retrieval/schema";
 
 // 도메인 모듈별 schema를 한 객체로 합쳐 drizzle에 주입 — 타입 추론(`Db`)이
 // 모든 테이블을 인식하도록 wiring은 본 파일이 소유.
-const schema = { ...chatSchema, ...retrievalSchema, ...evalSchema };
+const schema = { ...chatSchema, ...retrievalSchema };
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>;
 
