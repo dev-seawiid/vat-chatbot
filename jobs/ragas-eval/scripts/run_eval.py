@@ -40,9 +40,9 @@ from typing import IO
 
 from langfuse import Langfuse
 from ragas.metrics.collections import (
-    AnswerCorrectness,
     AnswerRelevancy,
     ContextPrecisionWithReference,
+    FactualCorrectness,
     Faithfulness,
 )
 
@@ -51,7 +51,7 @@ from ragas_eval.llm import make_llm
 from ragas_eval.rag import rag_run
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DATASET_NAME = os.environ.get("LANGFUSE_DATASET_NAME", "vat-rag-golden-v1")
+DATASET_NAME = os.environ.get("LANGFUSE_DATASET_NAME", "")
 # 실행마다 unique run_name — 같은 run에 trace 중복 누적 방지 (Langfuse docs 권장).
 RUN_NAME = f"{DATASET_NAME}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 OUTPUT_PATH = Path(
@@ -95,7 +95,7 @@ def build_metrics(llm, embeddings) -> list:
         Faithfulness(llm=llm),
         AnswerRelevancy(llm=llm, embeddings=embeddings),
         ContextPrecisionWithReference(llm=llm),
-        AnswerCorrectness(llm=llm, embeddings=embeddings),
+        FactualCorrectness(llm=llm, mode="f1"),
     ]
 
 
