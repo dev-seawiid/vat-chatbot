@@ -13,10 +13,9 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 
 REPO_ROOT = _REPO_ROOT
-SOURCES_JSON = _REPO_ROOT / "data" / "sources.json"
-PDFS_DIR = _REPO_ROOT / ".cache" / "pdfs"
-MANIFEST_JSON = PDFS_DIR / "manifest.json"
+RAG_KB_DIR = _REPO_ROOT / "data" / "rag_knowledge_base"
 EXTRACTED_DIR = _REPO_ROOT / ".cache" / "extracted"
+PARSED_DIR = _REPO_ROOT / ".cache" / "parsed"
 CHUNKS_DIR = _REPO_ROOT / ".cache" / "chunks"
 EMBEDDINGS_DIR = _REPO_ROOT / ".cache" / "embeddings"
 

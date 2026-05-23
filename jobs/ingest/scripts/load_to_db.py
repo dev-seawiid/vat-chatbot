@@ -1,105 +1,115 @@
+import hashlib
 import json
+import unicodedata
+from pathlib import Path
 
+from sqlalchemy import text
+
+from ingest.load.chunk_repository import count_chunks_by_doc, insert_chunks
 from ingest.load.db.client import get_sessionmaker
+from ingest.load.document_repository import upsert_document
+from ingest.load.service import build_chunk_rows
 from ingest.shared.paths import (
     CHUNKS_DIR,
     EMBEDDINGS_DIR,
-    MANIFEST_JSON,
-    SOURCES_JSON,
+    RAG_KB_DIR,
     make_arg_parser,
     print_table,
     require_path,
 )
-from ingest.load.chunk_repository import (
-    count_chunks_by_doc,
-    insert_chunks,
-)
-from ingest.load.document_repository import upsert_document
-from ingest.load.service import build_chunk_rows
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _find_pdf(stem_nfc: str) -> Path | None:
+    """캐시 stem(NFC)에 대응하는 원본 PDF — macOS APFS는 파일명을 NFD로 저장."""
+    for p in RAG_KB_DIR.glob("*.pdf"):
+        if unicodedata.normalize("NFC", p.stem) == stem_nfc:
+            return p
+    return None
 
 
 def main() -> int:
-    args = make_arg_parser("Load chunks + embeddings into Postgres").parse_args()
+    parser = make_arg_parser("Load chunks + dense embeddings into Postgres")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="truncate chunks+documents before reload (ADR-0002 §1.6)",
+    )
+    args = parser.parse_args()
     require_path(CHUNKS_DIR, hint="run ingest:chunk first")
-    require_path(SOURCES_JSON)
-    require_path(MANIFEST_JSON, hint="run ingest:fetch first")
-
-    sources = json.loads(SOURCES_JSON.read_text(encoding="utf-8"))
-    manifest = json.loads(MANIFEST_JSON.read_text(encoding="utf-8"))
-    # id → sources.json entry — title/url 등 doc 메타 조회용.
-    by_id = {p["id"]: p for p in sources.get("pdfs", [])}
+    require_path(EMBEDDINGS_DIR, hint="run ingest:embed first")
+    require_path(RAG_KB_DIR)
 
     target_ids = set(args.ids)
-
     rows: list[list[str]] = []
     failed = 0
     SessionLocal = get_sessionmaker()
     with SessionLocal() as session:
-        for path in sorted(CHUNKS_DIR.glob("*.json")):
-            sid = path.stem
-            if target_ids and sid not in target_ids:
+        if args.reset:
+            session.execute(
+                text("TRUNCATE chunks, documents RESTART IDENTITY CASCADE")
+            )
+            session.commit()
+
+        for chunk_path in sorted(CHUNKS_DIR.glob("*.json")):
+            stem = unicodedata.normalize("NFC", chunk_path.stem)
+            if target_ids and stem not in target_ids:
                 continue
 
-            embed_path = EMBEDDINGS_DIR / f"{sid}.json"
+            embed_path = EMBEDDINGS_DIR / chunk_path.name
             if not embed_path.exists():
-                rows.append([sid, "-", "! no embeddings — run ingest:embed first"])
-                failed += 1
-                continue
-            entry = by_id.get(sid)
-            mani = manifest.get(sid)
-            if not entry or not mani or not mani.get("sha256"):
-                rows.append([sid, "-", "! sources.json/manifest 매핑 누락"])
+                rows.append([stem[:40], "-", "! no embeddings — run ingest:embed first"])
                 failed += 1
                 continue
 
-            chunks = json.loads(path.read_text(encoding="utf-8"))
+            pdf_path = _find_pdf(stem)
+            if pdf_path is None:
+                rows.append([stem[:40], "-", "! source PDF not found in RAG_KB_DIR"])
+                failed += 1
+                continue
+
+            chunks = json.loads(chunk_path.read_text(encoding="utf-8"))
             embeds = json.loads(embed_path.read_text(encoding="utf-8"))
+            if not chunks:
+                rows.append([stem[:40], "0", "! empty chunks"])
+                continue
+            first = chunks[0]
 
-            # documents 먼저 — chunks의 doc_id FK는 여기서 받은 uuid가 들어가야 함.
-            # file_hash는 fetch 단계에서 이미 계산된 manifest sha256을 그대로 사용
-            # (재계산 회피 + fetch 단계의 truth와 일치).
             doc_uuid = upsert_document(
                 session,
-                title=entry["title"],
-                file_hash=mani["sha256"],
-                source_url=entry.get("url"),
-                version=entry["version"],
+                title=first["law"],
+                file_hash=_sha256(pdf_path),
+                version=first.get("effective_date"),
             )
 
-            # 청크 JSON과 임베딩 JSON은 분리 저장 — content_hash로 join해야 청크 재생성 후
-            # 임베딩 미갱신 같은 비정합 상태를 detect할 수 있다.
             by_hash = {e["content_hash"]: e["embedding"] for e in embeds}
-
             try:
                 db_rows = build_chunk_rows(
                     chunks=chunks,
                     embeddings_by_hash=by_hash,
                     doc_uuid=doc_uuid,
-                    source_id=sid,
-                    kind=entry.get("kind", "pdf"),
-                    tax_type=entry["tax_type"],
-                    doc_version=entry["version"],
                 )
             except KeyError as exc:
-                # 누락 hash가 있으면 부분 적재로 진행하지 않고 즉시 보고 — 청크/임베딩 캐시
-                # 동기화가 깨진 신호이므로 silent skip은 디버깅 곤란.
-                rows.append(
-                    [sid, "-", f"! missing embedding for hash {exc.args[0][:12]}"]
-                )
+                rows.append([stem[:40], "-", f"! missing embedding for hash {exc.args[0][:12]}"])
                 failed += 1
                 continue
 
-            # before/after 차이가 실제 신규 적재 수. ON CONFLICT DO NOTHING이라
-            # SQLAlchemy result.rowcount는 신뢰 불가.
             before = count_chunks_by_doc(session, doc_uuid)
             insert_chunks(session, db_rows)
             after = count_chunks_by_doc(session, doc_uuid)
-            rows.append([sid, str(len(chunks)), str(after - before)])
+            rows.append([first["law"], str(len(chunks)), str(after - before)])
 
     print_table(
-        headers=["ID", "CHUNKS", "INSERTED"],
+        headers=["LAW", "CHUNKS", "INSERTED"],
         rows=rows,
-        widths=[40, -7, -9],
+        widths=[25, -7, -10],
     )
     return 1 if failed else 0
 

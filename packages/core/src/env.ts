@@ -14,6 +14,8 @@ export const EnvSchema = z.object({
   // 빈 문자열만 즉시 거부 — placeholder 값은 실제 호출 시점에 401로 명시 실패시켜
   // "키가 잘못됐다"는 신호가 빠르게 표면화되도록 둔다.
   VOYAGE_API_KEY: z.string().min(1, "VOYAGE_API_KEY is required"),
+  // ingest plane(jobs/ingest/.../config.py)의 voyage_model과 같은 값이어야 dimension·학습 일치.
+  VOYAGE_MODEL: z.string().default("voyage-4"),
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
 });
 

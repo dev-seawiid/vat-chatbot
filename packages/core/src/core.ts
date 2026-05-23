@@ -15,6 +15,7 @@ import {
 export type CoreConfig = {
   databaseUrl: string;
   embeddingApiKey: string;
+  embeddingModelId: string;
   generationApiKey: string;
 };
 
@@ -31,7 +32,10 @@ export function createCore(config: CoreConfig): Core {
   const chunkRepo = createChunkRepository(db);
   const messageRepo = createMessageRepository(db);
 
-  const embeddingModel = createEmbeddingModel({ apiKey: config.embeddingApiKey });
+  const embeddingModel = createEmbeddingModel({
+    apiKey: config.embeddingApiKey,
+    modelId: config.embeddingModelId,
+  });
   const generationModel = createGenerationModel({ apiKey: config.generationApiKey });
 
   const retrieval = createRetrievalService({

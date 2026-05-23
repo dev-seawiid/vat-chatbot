@@ -37,6 +37,7 @@ async function main(): Promise<void> {
   const core = createCore({
     databaseUrl: env.DATABASE_URL,
     embeddingApiKey: env.VOYAGE_API_KEY,
+    embeddingModelId: env.VOYAGE_MODEL,
     generationApiKey: env.OPENAI_API_KEY,
   });
 

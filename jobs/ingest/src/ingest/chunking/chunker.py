@@ -1,149 +1,118 @@
+"""ParsedDocument → embedding-ready Chunk.
+
+(article, paragraph, item) 키로 parse 노드를 그룹화하면 호 단위 임베딩이
+자연스럽게 떨어지고 같은 호의 흩어진 list_item들이 합쳐진다. heading은
+법명·조항호 식별이 검색 정확도에 결정적이라 chunk 맨 앞에 prepend한다.
+
+Contextual prefix(LLM 도메인 요약 prepend, ADR §1.4-2)는 별도 sub-step.
+"""
+
 import hashlib
+from collections.abc import Iterable
 
-import tiktoken
+import voyageai
 
-from ingest.chunking.dto import ChunkDTO
-from ingest.extract.dto import ExtractResult, Section
+from ingest.chunking.dto import Chunk
+from ingest.parse.dto import Node, ParsedDocument
+from ingest.shared.config import get_settings
 
-# voyage 전용 토크나이저는 비공개라 OpenAI cl100k_base를 예산용으로 차용.
-# 실제 임베딩 토큰 수와 정확히 일치하진 않으나 청크 크기 일관성에는 충분.
-ENCODING = tiktoken.get_encoding("cl100k_base")
-
-# 큰 단위에서 작은 단위 순으로 시도해 의미 경계를 최대한 보존한다.
-# 마지막 단계로도 안 맞으면 토큰 단위 하드 슬라이스로 fallback.
-DEFAULT_SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", " "]
-
-DEFAULT_MAX_TOKENS = 500
-DEFAULT_OVERLAP = 50
+MAX_TOKENS = 512
+OVERLAP_TOKENS = 150
 
 
-def count_tokens(text: str) -> int:
-    return len(ENCODING.encode(text))
+def _content_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _split_with_separator(text: str, separator: str) -> list[str]:
-    if not separator:
-        return [text]
-    parts = text.split(separator)
-    # 분리자를 앞 조각 끝에 붙여 두면 재조립 시 자연스러운 경계가 보존된다.
-    glued = [p + separator for p in parts[:-1]] + [parts[-1]]
-    return [s for s in glued if s]
+def _heading_line(
+    law: str,
+    article: str | None,
+    paragraph: int | None,
+    item: int | None,
+    chapters: list[str],
+) -> str:
+    parts = [law]
+    if article:
+        parts.append(f"제{article}조")
+    if paragraph:
+        parts.append(f"제{paragraph}항")
+    if item:
+        parts.append(f"제{item}호")
+    head = " ".join(parts)
+    if chapters:
+        head += " (" + " > ".join(chapters) + ")"
+    return head
 
 
-def _split_recursive(
-    text: str, max_tokens: int, separators: list[str]
-) -> list[str]:
-    if count_tokens(text) <= max_tokens:
-        return [text] if text.strip() else []
-
-    # 텍스트 안에 존재하는 가장 굵은 분리자를 우선 시도.
-    for i, sep in enumerate(separators):
-        if sep and sep in text:
-            parts = _split_with_separator(text, sep)
-            result: list[str] = []
-            for p in parts:
-                if count_tokens(p) <= max_tokens:
-                    if p.strip():
-                        result.append(p)
-                else:
-                    result.extend(_split_recursive(p, max_tokens, separators[i + 1 :]))
-            return result
-
-    # 모든 분리자가 효과 없으면 토큰 경계로 강제 분할.
-    tokens = ENCODING.encode(text)
-    return [
-        ENCODING.decode(tokens[i : i + max_tokens])
-        for i in range(0, len(tokens), max_tokens)
-    ]
+def _group_nodes(nodes: Iterable[Node]) -> list[list[Node]]:
+    groups: list[list[Node]] = []
+    current: list[Node] = []
+    current_key: tuple | None = None
+    for n in nodes:
+        key = (n.article, n.paragraph, n.item)
+        if current and key != current_key:
+            groups.append(current)
+            current = []
+        current.append(n)
+        current_key = key
+    if current:
+        groups.append(current)
+    return groups
 
 
-def _take_last_tokens(text: str, n: int) -> str:
-    if n <= 0 or not text:
-        return ""
-    tokens = ENCODING.encode(text)
-    if len(tokens) <= n:
-        return text
-    return ENCODING.decode(tokens[-n:])
+def chunk_parsed(parsed: ParsedDocument) -> list[Chunk]:
+    settings = get_settings()
+    client = voyageai.Client(api_key=settings.voyage_api_key)
+    model = settings.voyage_model
 
-
-def _merge_with_overlap(
-    splits: list[str], max_tokens: int, overlap: int
-) -> list[str]:
-    """인접한 조각을 max_tokens까지 합쳐 청크화하고, 청크 경계에 overlap 토큰을 겹친다."""
-    if not splits:
-        return []
-    chunks: list[str] = []
-    buf: list[str] = []
-    buf_tokens = 0
-
-    for piece in splits:
-        piece_tokens = count_tokens(piece)
-        if not buf or buf_tokens + piece_tokens <= max_tokens:
-            buf.append(piece)
-            buf_tokens += piece_tokens
+    chunks: list[Chunk] = []
+    for group in _group_nodes(parsed.nodes):
+        body = "\n".join(n.text for n in group if n.text).strip()
+        if not body:
             continue
-        chunks.append("".join(buf))
-        # 다음 청크 앞에 직전 청크 꼬리 일부를 붙여 문맥 끊김 완화.
-        tail = _take_last_tokens("".join(buf), overlap)
-        buf = [tail, piece] if tail else [piece]
-        buf_tokens = count_tokens(tail) + piece_tokens
+        first = group[0]
+        head = _heading_line(
+            parsed.law, first.article, first.paragraph, first.item, first.heading_path
+        )
+        parent_id = f"{parsed.law}#{first.article}" if first.article else None
 
-    if buf:
-        chunks.append("".join(buf))
+        full = f"{head}\n\n{body}"
+        token_count = client.count_tokens([full], model=model)
+        if token_count <= MAX_TOKENS:
+            chunks.append(_make_chunk(parsed, first, group, full, token_count, parent_id))
+            continue
+
+        # 호/항 단위가 max를 초과하는 드문 케이스 — char 단위 슬라이딩(token≈char 가정).
+        step = MAX_TOKENS - OVERLAP_TOKENS
+        for i in range(0, len(body), step):
+            piece = body[i : i + MAX_TOKENS]
+            content = f"{head}\n\n{piece}"
+            tk = client.count_tokens([content], model=model)
+            chunks.append(_make_chunk(parsed, first, group, content, tk, parent_id))
     return chunks
 
 
-def chunk_text(
-    text: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap: int = DEFAULT_OVERLAP,
-    separators: list[str] | None = None,
-) -> list[str]:
-    seps = separators or DEFAULT_SEPARATORS
-    return _merge_with_overlap(_split_recursive(text, max_tokens, seps), max_tokens, overlap)
-
-
-def chunk_section(
-    section: Section,
-    doc_id: str,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap: int = DEFAULT_OVERLAP,
-) -> list[ChunkDTO]:
-    pieces = chunk_text(section.content, max_tokens=max_tokens, overlap=overlap)
-    out: list[ChunkDTO] = []
-    for ordinal, piece in enumerate(pieces):
-        # 섹션 헤딩을 청크 본문 앞에 1줄 prepend — 임베딩에 위치/주제 단서를 추가한다.
-        # citation·메타에는 별도로 anchor/page가 있으니 컨텐츠 복제로 인한 손실 없음.
-        body = f"# {section.heading}\n\n{piece.strip()}"
-        out.append(
-            ChunkDTO(
-                doc_id=doc_id,
-                section_ordinal=section.ordinal,
-                chunk_ordinal=ordinal,
-                content=body,
-                content_hash=hashlib.sha256(body.encode("utf-8")).hexdigest(),
-                token_count=count_tokens(body),
-                heading=section.heading,
-                page=section.page,
-                anchor=section.anchor,
-            )
-        )
-    return out
-
-
-def chunk_extract_result(
-    result: ExtractResult,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    overlap: int = DEFAULT_OVERLAP,
-) -> list[ChunkDTO]:
-    chunks: list[ChunkDTO] = []
-    for section in result.sections:
-        chunks.extend(
-            chunk_section(
-                section,
-                doc_id=result.source_id,
-                max_tokens=max_tokens,
-                overlap=overlap,
-            )
-        )
-    return chunks
+def _make_chunk(
+    parsed: ParsedDocument,
+    first: Node,
+    group: list[Node],
+    content: str,
+    token_count: int,
+    parent_id: str | None,
+) -> Chunk:
+    return Chunk(
+        id=f"{parsed.law}#{first.ordinal:04d}",
+        law=parsed.law,
+        effective_date=parsed.effective_date,
+        article=first.article,
+        paragraph=first.paragraph,
+        item=first.item,
+        parent_article_id=parent_id,
+        heading_path=first.heading_path,
+        content=content,
+        content_hash=_content_hash(content),
+        token_count=token_count,
+        refs=sorted({r for n in group for r in n.refs}),
+        pages=sorted({n.page for n in group if n.page is not None}),
+        source_node_ids=[n.id for n in group],
+    )

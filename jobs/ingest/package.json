@@ -4,11 +4,10 @@
   "private": true,
   "scripts": {
     "sync": "uv sync",
-    "fetch": "uv run python scripts/fetch_pdfs.py",
     "extract": "uv run python scripts/extract_pdfs.py",
+    "parse": "uv run python scripts/parse_extracted.py",
     "chunk": "uv run python scripts/chunk_pdfs.py",
     "embed": "uv run python scripts/embed_chunks.py",
-    "load": "uv run python scripts/load_to_db.py",
-    "all": "pnpm fetch && pnpm extract && pnpm chunk && pnpm embed && pnpm load"
+    "load": "uv run python scripts/load_to_db.py"
   }
 }
