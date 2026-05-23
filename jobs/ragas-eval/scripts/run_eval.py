@@ -30,6 +30,7 @@
 
 ragas 0.4.x collections OOP API — evaluate() 옛 API 미사용.
 """
+import asyncio
 import inspect
 import json
 import os
@@ -104,40 +105,52 @@ def _kwargs_for(metric, sample: dict) -> dict:
     return {k: sample[k] for k in sig.parameters if k in sample}
 
 
-def score_all(metrics: list, sample: dict) -> tuple[dict[str, float], float]:
-    """각 metric 호출 + per-metric log. response 비고 metric이 response 사용 → 0점.
-    judge LLM 호출 skip, 평균엔 RAG 실패가 0점으로 정확히 반영됨."""
-    scores: dict[str, float] = {}
-    total = 0.0
+async def _score_one(metric, sample: dict) -> tuple[str, float | None, float]:
+    """단일 metric async 호출 + 시간·로그. 실패 시 score=None 반환(상위에서 omit)."""
+    kwargs = _kwargs_for(metric, sample)
+    t0 = time.monotonic()
+    try:
+        result = await metric.ascore(**kwargs)
+        dt = time.monotonic() - t0
+        score = float(result.value)
+        print(f"    ✓ {metric.name:<35} {dt:6.2f}s  score={score:.3f}")
+        return metric.name, score, dt
+    except Exception as e:
+        dt = time.monotonic() - t0
+        first_line = str(e).strip().splitlines()[0][:120]
+        print(f"    ✗ {metric.name:<35} {dt:6.2f}s  FAILED: {first_line}")
+        return metric.name, None, dt
+
+
+async def score_all(metrics: list, sample: dict) -> tuple[dict[str, float], float]:
+    """metric 4종 asyncio.gather 동시 호출 — wall clock = max(metric) ≈ 4배 단축.
+    빈 응답이면 response-사용 metric은 0점 skip(judge 호출 X).
+    반환 total = wall clock 시간(직렬 합이 아님)."""
     response_empty = not sample.get("response", "").strip()
+    scores: dict[str, float] = {}
+    tasks = []
 
     for m in metrics:
-        kwargs = _kwargs_for(m, sample)
-        uses_response = "response" in kwargs
-        if response_empty and uses_response:
+        if response_empty and "response" in _kwargs_for(m, sample):
             scores[m.name] = 0.0
             print(f"    · {m.name:<35}   ----  score=0.000 (empty response — judge skipped)")
             continue
+        tasks.append(_score_one(m, sample))
 
-        t0 = time.monotonic()
-        try:
-            result = m.score(**kwargs)
-            scores[m.name] = float(result.value)
-            dt = time.monotonic() - t0
-            total += dt
-            print(f"    ✓ {m.name:<35} {dt:6.2f}s  score={scores[m.name]:.3f}")
-        except Exception as e:
-            dt = time.monotonic() - t0
-            total += dt
-            first_line = str(e).strip().splitlines()[0][:120]
-            print(f"    ✗ {m.name:<35} {dt:6.2f}s  FAILED: {first_line}")
-    return scores, total
+    t0 = time.monotonic()
+    results = await asyncio.gather(*tasks) if tasks else []
+    elapsed = time.monotonic() - t0
+
+    for name, score, _ in results:
+        if score is not None:
+            scores[name] = score
+    return scores, elapsed
 
 
 # ---------- phase 1 (per-item, resumable) ----------
 
-def process_item(item, metrics: list, file: IO) -> tuple[float, float]:
-    """한 item: RAG → score_all → jsonl row append + flush. 반환: (t_rag, t_judge)."""
+async def process_item(item, metrics: list, file: IO) -> tuple[float, float]:
+    """한 item: RAG → score_all(병렬) → jsonl row append + flush. 반환: (t_rag, t_judge_wallclock)."""
     q_preview = item.input[:60].replace("\n", " ")
     print(f"    Q: {q_preview}{'...' if len(item.input) > 60 else ''}")
 
@@ -153,7 +166,7 @@ def process_item(item, metrics: list, file: IO) -> tuple[float, float]:
         "retrieved_contexts": contexts,
         "reference": ground_truth,
     }
-    scores, t_judge = score_all(metrics, sample)
+    scores, t_judge = await score_all(metrics, sample)
 
     file.write(
         json.dumps(
@@ -173,8 +186,9 @@ def process_item(item, metrics: list, file: IO) -> tuple[float, float]:
     return t_rag, t_judge
 
 
-def phase1_collect(dataset, metrics: list, output: Path) -> None:
-    """resume → for remaining: process_item → 끝에 cumulative log."""
+async def phase1_collect(dataset, metrics: list, output: Path) -> None:
+    """resume → for remaining: process_item(async) → 끝에 cumulative log.
+    item 자체는 직렬(RAG subprocess 동시 spawn·jsonl write 안정성). metric만 병렬."""
     output.parent.mkdir(parents=True, exist_ok=True)
     done = load_done(output)
     if done:
@@ -189,7 +203,7 @@ def phase1_collect(dataset, metrics: list, output: Path) -> None:
     with output.open("a", encoding="utf-8") as f:
         for i, item in enumerate(remaining, 1):
             print(f"\n  [{i}/{len(remaining)}] {item.id}")
-            t_rag, t_judge = process_item(item, metrics, f)
+            t_rag, t_judge = await process_item(item, metrics, f)
             cum_rag += t_rag
             cum_judge += t_judge
             print(
@@ -259,7 +273,7 @@ def main() -> None:
     langfuse = Langfuse()
     dataset = langfuse.get_dataset(DATASET_NAME)
     metrics = build_metrics(make_llm(), make_embeddings())
-    phase1_collect(dataset, metrics, OUTPUT_PATH)
+    asyncio.run(phase1_collect(dataset, metrics, OUTPUT_PATH))
     phase2_push(langfuse, dataset, metrics, OUTPUT_PATH)
 
 

@@ -48,7 +48,15 @@ reference 근거에서 사용자 친화 톤으로 1~3문장 재작성. RAGAS met
 - **정렬**: RAGAS v0.2+ 공식 Getting Started default 셋(LLMContextRecall + Faithfulness + FactualCorrectness)과 일치.
 - **단절**: AC 누적 점수와 metric 의미가 달라 historical trend 비교 불가 — v2 첫 run부터 FC baseline 재구축.
 
-## 6. 한계
+## 6. Judge LLM — Claude CLI subprocess → OpenAI nano tier
+
+- **문제점**: judge를 Claude CLI subprocess(`claude -p`)로 호출 → 매 call마다 cold start(~50s 추정) × 120 call(30문항 × 4 metric) × 직렬 = 1 사이클 약 2시간. 70% 진행 후 timeout 실측.
+- **Before**: `claude_cli/claude-haiku-4-5` (LiteLLM custom provider + subprocess).
+- **After**: `openai/<nano-tier>` (LiteLLM 표준). 1 call ~1-3초, 1 사이클 약 56원·2~6분 (직렬 기준). subprocess 폐지.
+- **정책 정합**: judge layer LiteLLM 허용(2026-05-19) 기존 결정 안. chat layer는 Claude Code headless 유지(분리 원칙).
+- **구체 model ID는 `llm.py` `DEFAULT_MODEL` 상수**에만 둔다(provider 수준 spec).
+
+## 7. 한계
 
 - **영세율 reference 부족**: 상담센터 영세율 사례가 robots 제약으로 미수집. 영세율 5문항은 기존 매뉴얼·사례집 표/사례에 의존 — 양질 hard 난이도 작성이 기존 대비 어려움.
 - **예정신고 reference 편중**: 신규 5문항이 단일 페이지(mi=1329) 기반 → answer가 reference 톤·표현에 과적합 가능. RAGAS faithfulness/precision은 영향 적으나 answer_relevancy는 다음 run에서 모니터.
