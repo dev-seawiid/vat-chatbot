@@ -42,13 +42,11 @@
 - **Before**: `voyage-3` ($0.06/MTok).
 - **After**: `voyage-4` (2026-01-15 출시). 동가($0.06/MTok), 첫 200M 토큰 무료. voyage-law-2는 미·중·독·인도 법률 학습으로 한국어 명시 없음 → voyage-4가 한국어+법률 둘 다 안전.
 
-### 1.6 load — reset + reload + sparse 인덱스
+### 1.6 load — reset + reload
 
-- **문제점**: append 전용이라 임베딩 모델·차원·정책 교체 시 stale vector가 잔류 → distribution mismatch. dense만으로는 `간이과세자·재화의 공급` 같은 한국어 고유 용어 정확 매칭 부족.
+- **문제점**: append 전용이라 임베딩 모델·차원·정책 교체 시 stale vector가 잔류 → distribution mismatch.
 - **Before**: dense vector append only.
-- **After**:
-  1. reset + reload (table truncate → 전량 reindex).
-  2. BM25 sparse 인덱스 동반 적재(hybrid retrieval 전제, 검색·rerank는 ADR-0003).
+- **After**: reset + reload (table truncate → 전량 reindex). BM25 sparse 인덱스 동반 적재는 ADR-0003에서 비범위로 결정 — 본 단계에서 제외.
 
 ## 2. 보류
 

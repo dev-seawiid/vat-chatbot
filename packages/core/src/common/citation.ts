@@ -1,3 +1,9 @@
+// strict substring — UI highlight 좌표 정확성을 위해 normalize 없이 그대로.
+// graph generate 노드가 LLM 출력 citations[i].quote를 chunk 본문에서 검색해 좌표를 박제.
+export function findQuoteStart(content: string, quote: string): number {
+  return content.indexOf(quote);
+}
+
 // invariant: content.slice(quoteStart, quoteEnd) === quote.
 // 좌표 박제로 UI는 정확한 highlight, 디버깅은 객체만으로 자기 충족.
 export type Citation = {

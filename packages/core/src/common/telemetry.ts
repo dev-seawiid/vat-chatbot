@@ -4,7 +4,6 @@ import {
   type LangfuseGenerationAttributes,
   type LangfuseSpanAttributes,
 } from "@langfuse/tracing";
-import type { TelemetrySettings } from "ai";
 
 // core 유일의 @langfuse/tracing 진입점. trace*는 함수 wrap(decorator), 응답 파싱 후의 dynamic
 // attribute만 setEmbeddingUsage. SpanProcessor 미부팅 process는 OTEL no-op로 자동 무동작.
@@ -84,8 +83,3 @@ export function setEmbeddingUsage(input: number): void {
   );
 }
 
-// AI SDK는 자체 instrumentor — 활성 결정을 helper 한 점에서 always-on으로 고정.
-export const AI_SDK_TELEMETRY: TelemetrySettings = {
-  isEnabled: true,
-  functionId: "rag.ask",
-};

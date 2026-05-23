@@ -19,9 +19,10 @@ type StreamChatInput = {
 };
 
 // dev HMR로 모듈 재평가 시 새 postgres 풀이 누적되는 것 방지 (Prisma/Drizzle 패턴).
-const globalForCore = globalThis as unknown as { __vatCore?: Core };
+// createCore는 async(initChatModel dynamic import) — Promise 자체를 캐싱해 동시 첫 요청도 1회 초기화.
+const globalForCore = globalThis as unknown as { __vatCore?: Promise<Core> };
 
-function getCore(): Core {
+function getCore(): Promise<Core> {
   if (!globalForCore.__vatCore) {
     const env = parseEnv(process.env);
     globalForCore.__vatCore = createCore({
@@ -35,8 +36,8 @@ function getCore(): Core {
 }
 
 export async function streamChat(input: StreamChatInput) {
-  const core = getCore();
-  // Next.js OTEL 기본 span의 trace_id를 박제 — streamText generation span과 같은 trace.
+  const core = await getCore();
+  // Next.js OTEL 기본 span의 trace_id를 박제 — LangGraph 노드 span과 같은 trace로 묶이도록.
   const traceId = trace.getActiveSpan()?.spanContext().traceId ?? null;
 
   // propagateAttributes는 span CREATION 시점 context를 캡처 — ask 호출 자체를 감싼다.

@@ -34,7 +34,7 @@ function preview(text: string, max = 200): string {
 
 async function main(): Promise<void> {
   const env = parseEnv(process.env);
-  const core = createCore({
+  const core = await createCore({
     databaseUrl: env.DATABASE_URL,
     embeddingApiKey: env.VOYAGE_API_KEY,
     embeddingModelId: env.VOYAGE_MODEL,
