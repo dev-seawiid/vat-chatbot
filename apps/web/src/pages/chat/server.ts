@@ -19,7 +19,7 @@ type StreamChatInput = {
 };
 
 // dev HMR로 모듈 재평가 시 새 postgres 풀이 누적되는 것 방지 (Prisma/Drizzle 패턴).
-// createCore는 async(initChatModel dynamic import) — Promise 자체를 캐싱해 동시 첫 요청도 1회 초기화.
+// Promise 자체를 캐싱해 동시 첫 요청도 1회 초기화.
 const globalForCore = globalThis as unknown as { __vatCore?: Promise<Core> };
 
 function getCore(): Promise<Core> {

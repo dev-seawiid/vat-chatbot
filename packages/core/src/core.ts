@@ -45,8 +45,7 @@ export async function createCore(config: CoreConfig): Promise<Core> {
     chunkRepo,
   });
 
-  // initChatModel 기반(provider dynamic import) — async 팩토리.
-  const generationModel = await createGenerationModel({
+  const generationModel = createGenerationModel({
     apiKey: config.generationApiKey,
   });
 
