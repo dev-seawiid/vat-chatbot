@@ -1,14 +1,12 @@
 # Observability
 
-LLM 호출 자동 추적(trace) + 사용자 만족도 수집(score). 둘 다 Langfuse를 단일 destination으로 사용하고 `messages.trace_id`를 join 키로 공유.
+LLM 호출·검색 자동 추적(trace) + 사용자 만족도 수집(score). 둘 다 Langfuse를 단일 destination으로 사용하고 `messages.trace_id`를 join 키로 공유.
 
 ## 1. 스택
 
 ```
-Vercel AI SDK (streamText) ──emit──▶ OTEL spans
-                                       │
-@opentelemetry/sdk-node (NodeSDK) ──┐  │ register
-                                    ▼  ▼
+@opentelemetry/sdk-node (NodeSDK) ──┐
+                                    ▼
                        @langfuse/otel · LangfuseSpanProcessor
                                     │
                                     ▼
@@ -21,7 +19,7 @@ Vercel AI SDK (streamText) ──emit──▶ OTEL spans
 사용자 👍/👎 → POST /api/feedback
 ```
 
-레거시 `langfuse` v3 단일 패키지·`langfuse-vercel`은 비채택 — 공식 v5 문서가 OTEL 라우트만 안내.
+ADR-0003에서 chain이 AI SDK `streamText` → LangChain.js + LangGraph로 교체된 후, **LangChain의 Langfuse `CallbackHandler` 통합은 미연결** — 즉 LangGraph 노드(history_aware_rewrite, generate, grade_docs 등)의 LCEL spans은 현재 trace에 자동으로 박히지 않는다. 직접 wrap한 retrieval·embedding·rerank·pgvector 4개 span + root trace IO만 송출. 후속 — [TODO.md](./TODO.md).
 
 ## 2. 부트스트랩
 
@@ -59,23 +57,23 @@ export const langfuseSpanProcessor = new LangfuseSpanProcessor({
 
 instrumentation.node.ts(등록)와 route handler(forceFlush)가 같은 인스턴스를 공유 — Node 모듈 캐시가 process-global이라 import 경로만 같으면 보장. env(`LANGFUSE_PUBLIC_KEY/SECRET_KEY/BASEURL`)는 SpanProcessor가 직접 읽음. 미설정 시에도 인스턴스 생성은 성공하고 export 시점에 키 부재로 spans drop — dev 마찰 0(graceful).
 
-`/api/chat` 라우트는 `export const runtime = 'nodejs'` 강제 (NodeSDK 의존).
+`/api/chat` 라우트는 NodeSDK 의존이라 nodejs runtime에서 실행.
 
 ## 3. 호출측 통합
 
 ### Layering 원칙 (where to instrument)
 
-외부 I/O와 가장 가까운 함수가 그 호출의 span을 만든다. 자동 instrumentor가 있으면 위임, 없으면 직접.
+외부 I/O와 가장 가까운 함수가 그 호출의 span을 만든다. LangChain/LangGraph callback handler 미통합 결정과 무관하게 직접 instrument한 곳은 다음 4개:
 
 | 위치 | 무엇이 박나 | 근거 |
 |---|---|---|
-| `chat.service.ts` | AI SDK `experimental_telemetry`에 always-on 상수 통과 → generation/tool-call span 자동 | AI SDK가 instrumentor 역할 |
-| `adapters/embedding.ts` | `withEmbeddingSpan` 직접 emit | Voyage TS instrumentor 부재 |
-| `retrieval/chunk.repository.ts` | `withSpan('pgvector.search', ...)` 직접 emit | postgres-js OTel auto-instrumentation 미지원 |
-| `retrieval/retrieval.service.ts` | `withRetrieverSpan` 직접 emit | 도메인 의미 단위(RAG) |
+| `modules/retrieval/retrieval.service.ts` | `traceRetriever('retrieval', ...)` | 도메인 의미 단위(RAG retrieve) |
+| `modules/retrieval/embedding.adapter.ts` | `traceEmbedding('voyage.embed', ...)` | Voyage TS instrumentor 부재 |
+| `modules/retrieval/chunk.repository.ts` | `traceSpan('pgvector.search', ...)` | postgres-js OTel auto-instrumentation 미지원 |
+| `modules/retrieval/rerank.adapter.ts` | `traceSpan('voyage.rerank', ...)` | Voyage rerank REST 직접 호출 |
 | `apps/web/.../pages/chat/server.ts` | `propagateAttributes` + `setActiveTraceIO` | trace-level attribute는 호출자 책임 |
 
-**Always-emit + helper 격리** — core는 plane이 SpanProcessor를 부팅했는지로 활성이 결정되며 활성화 인자를 prop drill하지 않는다(Langfuse 공식 권장). `@langfuse/tracing` SDK는 `packages/core/src/shared/telemetry/` 한 모듈에서만 import — 도메인 코드는 `withEmbeddingSpan` · `withRetrieverSpan` · `withSpan` · `AI_SDK_TELEMETRY`만 사용한다.
+**Always-emit + helper 격리** — core는 plane이 SpanProcessor를 부팅했는지로 활성이 결정되며 활성화 인자를 prop drill하지 않는다(Langfuse 공식 권장). `@langfuse/tracing` SDK는 `packages/core/src/common/telemetry.ts` 한 모듈에서만 import — 도메인 코드는 `traceEmbedding` · `traceRetriever` · `traceSpan` · `setEmbeddingUsage`만 사용한다.
 
 CLI(`scripts/ask.ts` 등)는 SpanProcessor 미부팅 → 모든 helper가 OTEL no-op tracer로 자동 무동작.
 
@@ -91,7 +89,7 @@ const { ... } = await propagateAttributes(
   {
     sessionId: input.conversationId,
     traceName: "chat-message",
-    metadata: { promptVersion: PROMPT_VERSION },
+    metadata: { promptVersion: PROMPT_VERSION },   // v3 — ADR-0003
   },
   () => {
     setActiveTraceIO({ input: input.query });
@@ -103,38 +101,34 @@ const { ... } = await propagateAttributes(
 setActiveTraceIO({ output: meta.text });
 ```
 
-`propagateAttributes`는 호출 시점의 active span + 콜백 안에서 생성되는 모든 child span에 `sessionId`/`traceName`/`metadata`를 박는다. `metadata.promptVersion`은 프롬프트 변경 cohort 비교용 (Langfuse 대시보드 metadata filter). `setActiveTraceIO`는 v5에서 deprecated 마크지만 trace-level input/output을 박는 표면이 이것뿐 — input은 시작 시점, output은 stream 종료 후 동일 trace의 root span context에서 호출(같은 trace_id면 trace IO로 박힘).
+`propagateAttributes`는 호출 시점의 active span + 콜백 안에서 생성되는 모든 child span에 `sessionId`/`traceName`/`metadata`를 박는다. `metadata.promptVersion`은 프롬프트 변경 cohort 비교용(Langfuse 대시보드 metadata filter — v1/v2/v3 분리). `setActiveTraceIO`는 v5에서 deprecated 마크지만 trace-level input/output을 박는 표면이 이것뿐 — input은 시작 시점, output은 stream 종료 후 동일 trace의 root span context에서 호출(같은 trace_id면 trace IO로 박힘).
 
-### core 내부 helper — `packages/core/src/shared/telemetry/`
+### core 내부 helper — `packages/core/src/common/telemetry.ts`
 
 도메인 함수를 **wrap**(decorator 스타일)하는 HOF — 비즈니스 본문 indent +0, 시그니처 보존.
 
 ```ts
-// adapters/embedding.ts
+// modules/retrieval/embedding.adapter.ts
 const embed: EmbedFn = traceEmbedding(
   {
     name: "voyage.embed",
     attrs: ([text, opts]) => ({
       input: text,
-      model: EMBEDDING_MODEL_ID,
+      model: modelId,
       metadata: { input_type: opts.input_type },
     }),
     output: (embedding) => ({ dim: embedding.length }),
   },
-  async (text, opts) => {                       // ← 본문은 비즈니스 로직만
+  async (text, opts) => {
     const res = await fetch(VOYAGE_URL, ...);
     const parsed = VoyageResponseSchema.parse(await res.json());
     if (parsed.usage) setEmbeddingUsage(parsed.usage.total_tokens);  // 응답 파싱 dynamic
     return parsed.data[0]!.embedding;
   },
 );
-
-// retrieval.service.ts — traceRetriever (본문 setSpanAttr 호출 0줄)
-// chunk.repository.ts — traceSpan("pgvector.search", ...)
-// chat.service.ts    — streamText({ experimental_telemetry: AI_SDK_TELEMETRY })
 ```
 
-공개 표면 — `traceEmbedding` · `traceRetriever` · `traceSpan` · `setEmbeddingUsage` · `AI_SDK_TELEMETRY`. type별 함수 분리는 SDK가 type별 overload(`LangfuseEmbeddingAttributes` 등)로 attribute 스키마를 강제하기 때문 — 하나의 generic HOF로 묶으면 `as` 단언이 필요해져 TS strictness 위반.
+공개 표면 — `traceEmbedding` · `traceRetriever` · `traceSpan` · `setEmbeddingUsage`. type별 함수 분리는 Langfuse SDK가 asType별 overload(`LangfuseEmbeddingAttributes` 등)로 attribute 스키마를 강제하기 때문 — 하나의 generic HOF로 묶으면 `as` 단언이 필요해져 TS strictness 위반.
 
 `meta.attrs`는 wrap 시점에 args에서 추출 가능한 정적/입력 attribute, `meta.output`은 return value를 trace UI용으로 가공(embedding vector → dim, chunks → contexts 등), `setEmbeddingUsage`는 응답 body 파싱 후에만 알 수 있는 token 수만을 위한 ambient update.
 
@@ -165,26 +159,28 @@ function scheduleLangfuseFlush() {
 
 ```
 trace (root: traceName='chat-message', sessionId=conversationId,
-       metadata.promptVersion, environment, input=query, output=text)
-├─ retriever: retrieval                          ← core
+       metadata.promptVersion=v3, environment, input=query, output=text)
+├─ retriever: retrieval                          ← core (traceRetriever)
 │   input: { query, k, filter }
 │   output: { count, topSimilarity, contexts:[{ chunkId, docTitle, page, similarity, content }] }
-│   ├─ embedding: voyage.embed                   ← core
-│   │   model='voyage-3', usageDetails:{ input, total }, metadata.input_type
-│   └─ span: pgvector.search                     ← core
+│   ├─ embedding: voyage.embed                   ← core (traceEmbedding)
+│   │   model=$VOYAGE_MODEL, usageDetails:{ input, total }, metadata.input_type
+│   └─ span: pgvector.search                     ← core (traceSpan)
 │       input:{ k, filter, dim }, output:{ hitCount, topSimilarity }
-├─ generation: ai.streamText                     ← AI SDK 자동
-│    input: { system, messages }
-│    output: { text }
-│    usage: { input_tokens, output_tokens }
-├─ span: ai.toolCall.calc_vat   (옵션)            ← AI SDK 자동
-├─ span: ai.toolCall.cite_chunk (옵션, N건)      ← AI SDK 자동
+├─ span: voyage.rerank                           ← core (traceSpan, rerank.adapter)
+│   input:{ query, candidateCount, topK, model }, output:{ hitCount }
 └─ score: user-thumbs            (피드백 도착 시 별도 호출)
      value: 1 | -1
      traceId: messages.trace_id
 ```
 
-Voyage-3 단가는 Langfuse default pricing에 없음 — 대시보드 Models에서 1회 등록(input USD/token).
+미박제(후속):
+- LangGraph 노드 spans — `history_aware_rewrite`, `grade_docs`, `multi_query_retrieve`, `generate`, `grade_answer`, `regenerate`, `fallback`
+- ChatOpenAI/structured output LLM call usage (input/output tokens) — `chat.service.ts`의 `finish.inputTokens`/`outputTokens`는 항상 undefined
+
+`@langfuse/langchain`의 `CallbackHandler`를 `graph.invoke({...}, { callbacks: [handler] })`로 주입하면 LCEL spans + LLM usage가 한 번에 박힌다 — 후속 슬라이스.
+
+Voyage 단가는 Langfuse default pricing에 없음 — 대시보드 Models에서 1회 등록(input USD/token).
 
 `messages.trace_id`(OTEL trace_id 32-hex)가 score attach 키. SQL로 messages ↔ trace, traces ↔ scores join 가능.
 
@@ -235,15 +231,14 @@ dev: docker-compose self-host. prod: Langfuse Cloud(free) 또는 self-host. 패�
 
 ## 7. 핵심 메트릭 (Langfuse 대시보드)
 
-- 응답 latency P50/P95
-- 평균 비용/질문 (USD)
-- 인용 포함률
+- 응답 latency P50/P95 (root trace duration)
+- retrieve top similarity 분포
 - 사용자 satisfaction (user-thumbs)
-- 검색 hit@k
 
 환경 분리(dev/prod/eval-run)는 `release` 또는 `metadata.env` 필드로. 별도 프로젝트 키 분리는 v2.
 
 ## 8. 후속
 
-- Prompt caching hit율 추적 — OpenAI prefix cache 효율 측정
+- **LangChain Langfuse CallbackHandler 통합** — LangGraph 노드 spans + LLM usage 자동 박제
+- ChatOpenAI usage_metadata 콜백으로 `inputTokens`/`outputTokens` finish 채널 채우기
 - 상세 [TODO.md](./TODO.md)

@@ -1,170 +1,141 @@
 # Generation
 
-retrieved chunks + 질문 → 스트리밍 답변 + 검증된 인용. 위치: `packages/core/src/chat/`.
+질문 + history → standalone query → 검색 → 답변 + 검증된 인용. 위치: `packages/core/src/modules/chat/`. 구조는 ADR-0003에 따라 LangGraph self-correcting loop.
 
 ## 1. 흐름
 
 ```
 chat.service.ts::ask(query, opts)
   │
-  ├─ retrieval.retrieve(query, { k, filter })    → chunks  (→ retrieval.md)
-  │
   ├─ (opts.conversationId)
-  │   messageRepo.recentTurns(id, 6)             → history (multi-turn §6)
+  │   messageRepo.recentTurns(id, 6)  → history (§5 multi-turn)
   │
-  ├─ streamText({
-  │     model: gpt-4o-mini,
-  │     system: buildSystemMessage(chunks),       — [chunkId=...] 라벨 + invariant
-  │     messages: [...history, { role:"user", content: query }],
-  │     tools,                                    — cite_chunk · calc_vat · lookup_law_article
-  │     stopWhen: stepCountIs(5),                 — tool 라운드트립 최대 5회
-  │     experimental_telemetry,                   — (→ observability.md)
-  │   })
-  │
-  └─ fullStream 백그라운드 소비 → 두 채널로 fan-out
-        ├─ text-delta  → textStream
-        └─ tool-call cite_chunk → quote substring 검증 → citationStream
+  └─ rag-graph.invoke({ messages: [...history, HumanMessage(query)] })
+        │
+        ▼ LangGraph (rag-graph.ts)
+        history_aware_rewrite → retrieve → rerank → grade_docs
+                                                    │
+                                                    ├─ pass  → generate → grade_answer
+                                                    │                       │
+                                                    │                       ├─ pass → END
+                                                    │                       ├─ fail → regenerate (max 1) → grade_answer
+                                                    │                       └─ 소진 → fallback
+                                                    └─ fail  → multi_query_retrieve (max 2) → rerank
+                                                              소진 → fallback
+        │
+        ▼
+        { answer, citations[] }
+        │
+        ▼ chat.service가 stream wrapper로 1회 emit
+        { textStream(1 chunk), citationStream(N burst), chunks, finish }
 ```
 
-반환: `{ textStream, citationStream, chunks, finish }`. 자세한 시그니처는 [architecture.md §5 Core API contract](./architecture.md#5-core-api-contract-in-process).
+반환 타입은 [architecture.md §5](./architecture.md#5-core-api-contract-in-process).
 
-## 2. 시스템 프롬프트
+## 2. LangGraph 노드
 
-`packages/core/src/chat/prompt.ts`:
+`packages/core/src/modules/chat/rag-graph.ts`. State는 LangChain `Annotation`(`MessagesAnnotation` 확장).
 
-```
-당신은 국세청 공식 자료를 기반으로 답하는 부가세 신고 어시스턴트다.
-- 제공된 <context> 안의 내용만 근거로 답하라.
-- 인용은 본문에 [n] 같은 마커를 박지 말고, 반드시 cite_chunk 도구로만 선언하라.
-  - chunkId: <context>의 [chunkId=...] 라벨 값을 그대로 사용.
-  - quote: 해당 chunk 본문에서 그대로 발췌한 30~120자 문장(요약·재작성 금지).
-  - 새로운 주장을 할 때마다 즉시 호출하라. 답변 끝에 몰아서 호출 금지.
-- context에 근거가 없으면 "공식 자료에서 확인되지 않습니다"라고 답하라. 추측 금지.
-- 계산이 필요하면 calc_vat 도구를 사용하라. 직접 산수 금지.
-```
+| 노드 | 책임 | LLM call | 출력 채널 |
+|---|---|---|---|
+| `history_aware_rewrite` | history가 있을 때만 standalone query 1줄 생성 | 1 (skip if first turn) | `standaloneQuery` |
+| `retrieve`               | dense top-50 (RETRIEVE_K=50) | 0 (embed 1) | `documents` |
+| `rerank`                 | Voyage `rerank-2.5` → top-8 (RERANK_K=8) | 0 (rerank API 1) | `documents` |
+| `grade_docs`             | 청크별 binary yes/no 병렬 | N(=8) | `docGrades` |
+| `multi_query_retrieve`   | grade fail 분기 — 3 변형 → 각 retrieve → union(MultiQueryRetriever) | 1 + embed 3 | `documents`, `rewriteCount++` |
+| `generate`               | `withStructuredOutput({answer, citations[]})` 1회 호출 | 1 | `answer`, `citations` (verify 통과) |
+| `grade_answer`           | faithfulness ∧ completeness | 1 | `regenerateFeedback` |
+| `regenerate`             | grade fail 분기 — 피드백을 system에 prepend 후 재생성 | 1 | `answer`, `citations`, `regenerateCount++` |
+| `fallback`               | 모든 재시도 소진 — 답변 강제 교체 | 0 | "공식 자료에서 확인되지 않습니다" |
 
-**`buildSystemMessage(chunks)`**가 chunks 8개를 `<context>` 안에 직렬화:
+라우터:
+- `routeAfterGradeDocs`: anyYes → `generate` / rewriteCount<2 → `multi_query_retrieve` / else → `fallback`
+- `routeAfterGradeAnswer`: pass(feedback="") → END / regenerateCount<1 → `regenerate` / else → `fallback`
 
-```
-[chunkId=abc-1234-...] 매뉴얼 · 버전 2025-2q · p.12 · II. 영세율
-{chunk 본문}
-
-[chunkId=def-5678-...] 사례집 · p.47
-{chunk 본문}
-
-... (8개)
-```
-
-`chunkId` 라벨이 도메인 키 — 모델이 `cite_chunk` 인자로 그대로 복사. retrieved chunks를 system role에 격리해 사용자 입력이 `</context>` 같은 구분자를 포함해도 prompt injection 차단.
-
-**`PROMPT_VERSION = "v2"`** — 평가 run의 비교 키. v1=inline `[n]` 마커, v2=cite_chunk tool-call.
+graph는 `recursionLimit: 15`로 invoke (최악 경로 14노드 + 안전 마진 1).
 
 ## 3. 모델 결정
 
-`packages/core/src/adapters/generation.ts`:
-- `GENERATION_MODEL_ID = "gpt-4o-mini"`
-- Provider: `@ai-sdk/openai`의 `createOpenAI({ apiKey })`
+`packages/core/src/modules/chat/generation.adapter.ts`:
+- `GENERATION_MODEL_ID = "gpt-5-nano"` (ADR-0003 §1)
+- Provider: `@langchain/openai`의 `ChatOpenAI` 직접 import (universal factory 비채택 — Turbopack이 변수 dynamic import를 정적 해결 못해 web bundle에서 500. provider 1개라 universal의 의미 없음)
+- `reasoning.effort = "low"` + `verbosity = "low"` — gpt-5-nano default(medium)는 reasoning 토큰을 출력 예산에서 다 소진하는 사고가 흔함. citation 추출에는 약간의 deliberation 필요해 "minimal" 대신 "low"
 
-`adapters/`에 단일 상수로 캡슐화. provider 교체 시 본 파일만 수정.
+같은 BaseChatModel 인터페이스를 rag-graph가 그대로 소비. provider 교체 시 본 파일만 수정.
 
-## 4. Tools
+## 4. Structured output — citation 1회 emit
 
-`packages/core/src/chat/tools.ts`:
-
-### `cite_chunk({ chunkId, quote })` — 인용 선언 채널 (생성의 핵심)
-
-```ts
-inputSchema: z.object({
-  chunkId: z.string(),
-  quote: z.string().min(20).max(160),
-})
-execute: async () => ({ ok: true })  // ack만 — 인자 자체가 페이로드
-```
-
-- 모델이 본문 텍스트에 `[n]` 마커를 박지 않음. 인용 선언은 오직 본 tool 호출로.
-- `ChatService.ask`의 fullStream 순회가 `tool-call` 이벤트를 가로채:
-  1. `CiteChunkInputSchema.safeParse(part.input)` — schema 위반 시 drop
-  2. `chunkById.get(chunkId)` — retrieved 8개 중 없으면 drop
-  3. `chunk.content.indexOf(quote)` — strict substring 매칭. 실패 시 drop
-  4. 통과 시 `toCitation(chunk, quote, quoteStart)` 생성 → `citationStream`에 emit + `finish.citations`에 누적
-- 검증 통과 인용만 `messages.citations` jsonb에 영속 박제 — 환각 인용이 저장소에 새지 않도록.
-
-### `calc_vat({ taxable_amount, rate })` — 정확한 계산
+ADR-0003 §3에 따라 cite_chunk tool-loop 폐기. `generate` 노드가 `model.withStructuredOutput(AnswerSchema, { method: "jsonSchema", strict: true })`로 한 번에 받는다:
 
 ```ts
-execute: async ({ taxable_amount, rate }) => {
-  const vat = Math.round(taxable_amount * rate);
-  return { taxable_amount, rate, vat, total: taxable_amount + vat };
-}
+const AnswerSchema = z.object({
+  answer: z.string(),
+  citations: z.array(z.object({
+    chunkId: z.string(),
+    quote: z.string(),       // 길이 제약은 prompt에서만 안내
+  })),
+});
 ```
 
-native number 곱셈. `decimal.js` 교체는 후속.
+수신 후 verify 루프:
+1. `chunkById.get(chunkId)` — rerank 통과 8개 중 없으면 drop
+2. `findQuoteStart(chunk.content, quote)` — strict substring 매칭. 실패 시 drop
+3. 통과분만 `toCitation(chunk, quote, start)`로 `quoteStart`/`quoteEnd` 좌표 박제
 
-### `lookup_law_article({ article_no })` — stub
+→ 환각 인용이 영속 저장소(`messages.citations`)에 새지 않음. UI는 char index로 highlight.
 
-국가법령정보센터 OpenAPI 어댑터 미연결 — [TODO.md](./TODO.md).
+**호출 비용**: cite_chunk tool-loop 시절 N+1회 → 1회 (인용 5개 ≈ 5x↓). 단 grade_docs는 청크별로 병렬 N회 호출 — 전체 latency는 LLM call 수보다 그래프 라운드 수에 더 민감.
 
-## 5. Citation 도메인 객체
-
-`packages/core/src/shared/citation.ts`:
-
-```ts
-type Citation = {
-  chunkId: string;
-  docId: string;
-  sourceId: string;            // sources.json 자연키 — citation 추적·UI 표시용
-  docTitle: string;
-  docVersion: string | null;
-  sourceUrl: string | null;    // UI "원본 PDF 다운로드" 앵커
-  page: number | null;
-  sectionPath: string | null;
-  content: string;             // chunk 본문 전체 — UI highlight 좌표 기준
-  quote: string;               // 모델이 발췌한 문장
-  quoteStart: number;          // content 내 시작 char index
-  quoteEnd: number;            // 끝 char index (exclusive)
-};
-```
-
-**Invariant**: `content.slice(quoteStart, quoteEnd) === quote`. Anthropic Citations API의 `(cited_text, start_char_index, end_char_index)`와 같은 형태로 자기 충족성·post-hoc 검증·UI highlight 정밀도를 동시 확보.
-
-`toCitation(chunk, quote, quoteStart)`은 호출자가 좌표를 계산해 넘기는 형태 — 좌표 정확성 책임은 호출자(chat.service의 verify)에 있음.
-
-## 6. Multi-turn
-
-`opts.conversationId` 주입 시 multi-turn 활성화:
+## 5. Multi-turn
 
 ```ts
 const history = opts.conversationId
-  ? await messageRepo.recentTurns(opts.conversationId, HISTORY_WINDOW)  // = 6
+  ? await messageRepo.recentTurns(opts.conversationId, 6)  // HISTORY_WINDOW
   : [];
-
-streamText({
-  ...
-  messages: [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: "user", content: query },
-  ],
-});
+const messages = [
+  ...history.map(m => m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)),
+  new HumanMessage(query),
+];
+graph.invoke({ messages }, { recursionLimit: 15 });
 ```
 
 - `HISTORY_WINDOW = 6` 메시지 = user+assistant 짝 3 round-trip.
 - DB에선 `createdAt desc + LIMIT`로 끝만 잘라오고 도메인엔 시간순으로 펼침.
-- 이전 turn의 `tool-call` 메타는 history에 미포함 — 텍스트 답변만 컨텍스트로.
-- **retrieve는 multi-turn 비활성** — 현재 turn의 query 단독으로 검색. history-aware retrieval(query rewriting)은 후속.
+- 이전 turn의 citation 메타는 history에 미포함 — 텍스트 답변만 컨텍스트로.
+- `history_aware_rewrite` 노드가 history를 standalone query로 압축 — retrieve도 multi-turn aware.
+
+## 6. Prompt v3
+
+`packages/core/src/modules/chat/prompt.ts`. `PROMPT_VERSION = "v3"` — 평가 cohort 비교 키. ADR-0003 §6 (run-02 환각 패턴 대응 + gpt-5 cookbook 권장 XML 형식).
+
+- v1: inline `[n]` 마커
+- v2: cite_chunk tool-call
+- v3: LangGraph + structured output. XML 태그(`<role>`, `<procedure>`, `<grounding>`, `<citation_rules>`, `<facts>`, `<conflict>`, `<format>`, `<unknown>`) + 절차 명시 + 긍정 표현 + 충돌 해소 규칙
+
+prompt 모듈은 generate system 외에 노드별 prompt도 owns:
+- `REPHRASE_PROMPT` — history_aware_rewrite
+- `GRADE_DOCS_PROMPT` — 청크별 binary 판정
+- `GRADE_ANSWER_PROMPT` — faithfulness ∧ completeness
+- `MULTI_QUERY_PROMPT_TEMPLATE` — MultiQueryRetriever용 PromptTemplate
+- `REGENERATE_INSTRUCTION` — grade fail 피드백 prepend
+- `buildGenerateSystem(chunks)` — `<context>` 직렬화 + chunkId 라벨 박제 (prompt injection 차단을 위해 system role에 격리)
 
 ## 7. SSE 스트리밍 (web)
 
 `apps/web/src/pages/chat/server.ts::streamChat`이 `core.chat.ask` 결과를 AI SDK `createUIMessageStream`으로 직렬화. parts 형태는 [architecture.md §6](./architecture.md#6-network-api-contract-web--client).
 
-text·citation 두 stream을 `Promise.all`로 병렬 drain — 어느 쪽도 다른 쪽을 막지 않음. 종료 후 `recordChatTurn`으로 conversations + messages 2건 transaction 기록.
+text·citation 두 channel을 `Promise.all`로 병렬 drain. 단 ADR-0003 §3로 본문 token streaming이 폐기되어 실질적으로 `text-delta`는 1회 burst, `data-citation`은 N건 burst. ChatWindow UI는 graph가 완료될 때까지(평균 ~18s) typing indicator를 띄움.
+
+종료 후 `recordChatTurn`으로 conversations + messages 2건 transaction 기록.
 
 ## 8. 에러 처리 (시스템 경계만)
 
 | 케이스 | 처리 |
 |---|---|
 | 모델 호출 실패 | throw → 응답 5xx (retry 미구현 — [TODO.md](./TODO.md)) |
-| context 비어있음 | streamText 그대로 진행. 시스템 프롬프트의 거절 규칙으로 모델이 처리 |
-| cite_chunk verify 실패 | citation drop. 모델 답변 흐름엔 영향 없음 |
-| persist 실패 | 답변은 이미 보여진 상태 — 서버 로그만 |
+| context 비어있음 | grade_docs all-no → multi_query_retrieve → 소진 시 fallback 노드가 "확인되지 않습니다" emit |
+| structured output schema 위반 | LangChain이 throw — 상위로 propagate |
+| citation verify 실패 | 해당 citation drop. answer 흐름엔 영향 없음 |
+| persist 실패 | 답변은 이미 전달 — 서버 로그만 |
 
 내부 함수(repository, retrieve)는 방어 코드 없음.

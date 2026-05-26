@@ -1,40 +1,40 @@
 # Retrieval
 
-질문 텍스트 → 관련 chunk top-k. 위치: `packages/core/src/retrieval/`.
+질문 텍스트 → 관련 chunk top-k. 위치: `packages/core/src/modules/retrieval/`.
+
+`RetrievalService.retrieve`는 **단발 dense vector 검색** 표면 — embed + pgvector top-k 합성. RAG 체인의 grade·rerank·multi-query 분기는 본 service 밖(LangGraph rag-graph)에서 합성. 따라서 CLI(`scripts/retrieve.ts`)와 evaluation plane이 직접 호출할 수 있는 검색 primitive로 동작.
 
 ## 1. 흐름
 
 ```
 query (string)
    │
-   ├─ embed(query, input_type="query")           — adapter/embedding.ts (→ embedding.md)
+   ├─ embed(query, input_type="query")           — embedding.adapter.ts (→ embedding.md)
    │     → number[1024]
    │
    └─ chunkRepo.search({ embedding, k, filter }) — chunk.repository.ts
          │
          └─ SELECT chunks JOIN documents
-              WHERE tax_type filter
-              ORDER BY embedding <=> $1
+              WHERE tax_type filter (optional)
+              ORDER BY embedding <=> $query_emb
               LIMIT $k
               → SearchResult[]
 ```
 
-`RetrievalService.retrieve(query, opts)`가 두 단계를 합성. `ChatService.ask`가 본 service만 호출하고 repository를 직접 보지 않음.
+`RetrievalService.retrieve(query, opts)`가 두 단계를 합성. 두 단계 모두 telemetry HOF(`traceRetriever`/`traceEmbedding`/`traceSpan`)로 wrap — 자세한 layering은 [observability.md](./observability.md).
 
-## 2. SQL
-
-`packages/core/src/retrieval/chunk.repository.ts::search`:
+## 2. SQL (`chunk.repository.ts::search`)
 
 ```sql
 SELECT
-  chunks.id::text                       AS chunk_id,
-  chunks.doc_id::text                   AS doc_id,
-  chunks.metadata->>'source_id'         AS source_id,
-  documents.title                       AS doc_title,
-  documents.version                     AS doc_version,
-  documents.source_url                  AS source_url,
+  chunks.id::text                       AS chunkId,
+  chunks.doc_id::text                   AS docId,
+  chunks.metadata->>'source_id'         AS sourceId,
+  documents.title                       AS docTitle,
+  documents.version                     AS docVersion,
+  documents.source_url                  AS sourceUrl,
   chunks.page,
-  chunks.section_path,
+  chunks.section_path                   AS sectionPath,
   chunks.content,
   chunks.metadata,
   1 - (chunks.embedding <=> $query_emb) AS similarity
@@ -46,8 +46,8 @@ LIMIT $k;
 ```
 
 - `<=>` = pgvector cosine distance. `1 - distance` = similarity.
-- `INNER JOIN documents`로 인용 모달 표시에 필요한 `docTitle`·`docVersion`·`sourceUrl`까지 한 번에 반환 (citation 객체 변환 시 추가 query 없음).
-- `chunks.metadata->>'tax_type'`은 jsonb path expression — DB가 jsonb 인덱스 없이도 빠르게 처리 (현재 메타 필터는 단일 키).
+- `INNER JOIN documents`로 인용 모달 표시에 필요한 `docTitle`/`docVersion`/`sourceUrl`까지 한 번에 반환.
+- `tax_type` 필터는 legacy(ADR-0001 이전 PDF 소스 분류 키) — 현 법령 소스에선 metadata에 박지 않으므로 사실상 no-op. 메타 표면 정리는 후속.
 
 **인덱스**: `idx_chunks_embedding` (HNSW + `vector_cosine_ops`). pgvector 기본 파라미터(m=16, ef_construction=64). 토이 규모(수백~수천 chunks)에서 ivfflat 튜닝보다 HNSW 기본이 빌드·운영 모두 무난.
 
@@ -57,7 +57,7 @@ LIMIT $k;
 type SearchResult = {
   chunkId: string;
   docId: string;
-  sourceId: string;          // sources.json 자연키 = Citation.sourceId
+  sourceId: string;          // metadata.source_id (legacy) — 법령 소스에선 빈 값
   docTitle: string;
   docVersion: string | null;
   sourceUrl: string | null;
@@ -65,7 +65,7 @@ type SearchResult = {
   sectionPath: string | null;
   content: string;            // chunk 본문 — citation 객체화 시 그대로 박제
   similarity: number;         // 1 - cosine_distance
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown>;  // chunking.md §4의 jsonb 키 셋
 };
 ```
 
@@ -73,46 +73,44 @@ type SearchResult = {
 
 ## 4. Service 시그니처
 
-`packages/core/src/retrieval/retrieval.service.ts`:
+`packages/core/src/modules/retrieval/retrieval.service.ts`:
 
 ```ts
 type RetrieveOptions = {
   k?: number;                        // 기본 8
-  filter?: { taxType?: string };
+  filter?: { taxType?: string };     // legacy
 };
 
 type RetrievalService = {
-  retrieve(query: string, opts?: RetrieveOptions): Promise<SearchResult[]>;
+  retrieve: RetrieveFn;              // (query, opts?) => Promise<SearchResult[]>
 };
-
-function createRetrievalService(deps: {
-  embed: EmbedFn;
-  chunkRepo: ChunkRepository;
-}): RetrievalService;
 ```
 
-CLI(`scripts/retrieve.ts`)와 `ChatService.ask` 둘 다 본 service를 호출.
+호출자:
+- **CLI** `scripts/retrieve.ts` — 단발 검색 (디버깅용)
+- **RAG graph** `modules/chat/retriever.adapter.ts::PgvectorRetriever` — LangChain `BaseRetriever`로 wrap해 dense top-50 호출. 이후 `VoyageRerankCompressor`가 top-8로 절단
+- **evaluation plane** `jobs/ragas-eval` — RAGAS 입력의 `retrieved_contexts`
 
 ## 5. 파라미터 결정
 
-| 파라미터 | 기본값 | 근거 |
+| 파라미터 | 기본값 | 호출 컨텍스트별 override |
 |---|---|---|
-| k | 8 | top-8이 system prompt context size 안에 8 chunks × ~500 token = ~4000 token, 모델 context 여유 + retrieval 누락 보완 |
-| filter.taxType | undefined | 명시 시 메타 필터로 후보 좁힘. UI에선 미노출(자동 분류는 후속) |
-| similarity threshold | 없음 | top-k 자체로 충분. similarity가 낮은 chunk도 함께 보내 모델이 거절 판단 (`context에 근거 없으면 "확인되지 않습니다"`) |
+| k | 8 | RAG graph `PgvectorRetriever`는 50 (recall 우선 → rerank가 절단) · CLI/eval은 default |
+| filter.taxType | undefined | UI에선 미노출. legacy 키라 현 법령 소스 retrieval엔 효과 없음 |
+| similarity threshold | 없음 | top-k 자체로 충분. grade_docs 노드가 binary 판정으로 거른다 |
 
-## 6. 재랭커 / 하이브리드
+## 6. RAG 체인에서의 위치
 
-비채택. 평가셋 baseline 측정 후 도입 결정 — [TODO.md](./TODO.md).
-- 재랭커 (cross-encoder rerank): top-k=20 가져와 재랭킹 후 top-8
-- 하이브리드 (벡터 + BM25): 한국어 keyword 매칭 보완
+ADR-0003 §2 LangGraph 흐름에서 retrieval은 두 노드의 backbone:
 
-## 7. 호출 위치
+```
+retrieve            : PgvectorRetriever(k=50)
+rerank              : VoyageRerankCompressor(top-8)  ← Voyage rerank-2.5
+multi_query_retrieve: MultiQueryRetriever(3 변형) → 각 PgvectorRetriever → union
+```
 
-- **chat.service.ts::ask** — 사용자 질문 처리. retrieve(query, { k, filter }) → chunks → buildSystemMessage. [generation.md](./generation.md).
-- **jobs/ragas-eval/scripts/run_eval.py** — 골든셋 채점 시 retrieve.k 옵션을 평가 입력에 박제.
-- **scripts/retrieve.ts** — CLI 단독 검색 (디버깅용).
+`multi_query_retrieve` 재진입 시에도 `rerank` 노드를 거쳐 grade_docs로 합류. 자세한 라우터는 [generation.md §2](./generation.md#2-langgraph-노드).
 
-## 8. Multi-turn 영향
+## 7. Multi-turn 영향
 
-현재 `ChatService.ask`는 multi-turn이지만 **retrieve는 단일 query** (사용자 직전 message만으로 embed). history-aware retrieval(query rewriting)은 후속 — [TODO.md](./TODO.md).
+`RetrievalService` 자체는 single-query primitive — 호출자가 standalone query를 만들어 넘긴다. multi-turn 변환은 RAG graph `history_aware_rewrite` 노드가 담당해 standaloneQuery → retrieve에 전달.
