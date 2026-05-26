@@ -88,29 +88,29 @@ type RetrievalService = {
 
 호출자:
 - **CLI** `scripts/retrieve.ts` — 단발 검색 (디버깅용)
-- **RAG graph** `modules/chat/retriever.adapter.ts::PgvectorRetriever` — LangChain `BaseRetriever`로 wrap해 dense top-50 호출. 이후 `VoyageRerankCompressor`가 top-8로 절단
+- **RAG graph** `modules/chat/rag-graph.ts::searchWithRerank` — `retrieve(k=50)` + `VoyageRerankCompressor.compressDocuments` + slice 합성. `search_direct`(k=8)·`claim_searches`(k=4) 두 노드에서 호출
 - **evaluation plane** `jobs/ragas-eval` — RAGAS 입력의 `retrieved_contexts`
 
 ## 5. 파라미터 결정
 
 | 파라미터 | 기본값 | 호출 컨텍스트별 override |
 |---|---|---|
-| k | 8 | RAG graph `PgvectorRetriever`는 50 (recall 우선 → rerank가 절단) · CLI/eval은 default |
+| k | 8 | RAG graph는 `searchWithRerank`로 prefilter=50 후 DIRECT_K=8 / CLAIM_K=4 slice · CLI/eval은 default |
 | filter.taxType | undefined | UI에선 미노출. legacy 키라 현 법령 소스 retrieval엔 효과 없음 |
-| similarity threshold | 없음 | top-k 자체로 충분. grade_docs 노드가 binary 판정으로 거른다 |
+| similarity threshold | 없음 | top-k 자체로 충분. rerank + RRF fuse가 후속 절단 |
 
 ## 6. RAG 체인에서의 위치
 
-ADR-0003 §2 LangGraph 흐름에서 retrieval은 두 노드의 backbone:
+ADR-0003 §2 v15 그래프에서 retrieval은 두 검색 노드의 backbone — `rag-graph.ts::searchWithRerank` 헬퍼가 `retrieve(prefilter=50)` + `VoyageRerankCompressor.compressDocuments` + `slice(0, k)`를 합성:
 
 ```
-retrieve            : PgvectorRetriever(k=50)
-rerank              : VoyageRerankCompressor(top-8)  ← Voyage rerank-2.5
-multi_query_retrieve: MultiQueryRetriever(3 변형) → 각 PgvectorRetriever → union
+search_direct  : searchWithRerank(query,   k=8)         ← DIRECT_K
+claim_searches : searchWithRerank(claim_i, k=4) × N(≤6) ← CLAIM_K, Promise.all
+fuse           : RRF(directChunks + claimChunks, top 10) ← FUSE_TOP_N
 ```
 
-`multi_query_retrieve` 재진입 시에도 `rerank` 노드를 거쳐 grade_docs로 합류. 자세한 라우터는 [generation.md §2](./generation.md#2-langgraph-노드).
+`RetrievalService.retrieve`는 양 노드에서 동일 표면(`PREFILTER_K=50` 단발 dense)으로 호출. rerank는 노드 헬퍼가 담당해 service 표면엔 빠져 있다. 자세한 노드 정의는 [generation.md §2](./generation.md#2-langgraph-노드).
 
 ## 7. Multi-turn 영향
 
-`RetrievalService` 자체는 single-query primitive — 호출자가 standalone query를 만들어 넘긴다. multi-turn 변환은 RAG graph `history_aware_rewrite` 노드가 담당해 standaloneQuery → retrieve에 전달.
+`RetrievalService` 자체는 single-query primitive — 호출자가 query를 만들어 넘긴다. v15엔 별도 history-aware rewrite 노드가 없고 `search_direct`는 마지막 user message text를, `claim_searches`는 `generate_draft`가 messages 배열로부터 합성한 claim을 query로 사용. coreference·분해는 draft LLM이 직접 처리.

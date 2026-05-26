@@ -19,7 +19,7 @@ LLM 호출·검색 자동 추적(trace) + 사용자 만족도 수집(score). 둘
 사용자 👍/👎 → POST /api/feedback
 ```
 
-ADR-0003에서 chain이 AI SDK `streamText` → LangChain.js + LangGraph로 교체된 후, **LangChain의 Langfuse `CallbackHandler` 통합은 미연결** — 즉 LangGraph 노드(history_aware_rewrite, generate, grade_docs 등)의 LCEL spans은 현재 trace에 자동으로 박히지 않는다. 직접 wrap한 retrieval·embedding·rerank·pgvector 4개 span + root trace IO만 송출. 후속 — [TODO.md](./TODO.md).
+ADR-0003에서 chain이 AI SDK `streamText` → LangChain.js + LangGraph로 교체된 후, **LangChain의 Langfuse `CallbackHandler` 통합은 미연결** — 즉 LangGraph 노드(search_direct, generate_draft, claim_searches, fuse, generate_answer)의 LCEL spans은 현재 trace에 자동으로 박히지 않는다. 직접 wrap한 retrieval·embedding·rerank·pgvector 4개 span + root trace IO만 송출. 후속 — [TODO.md](./TODO.md).
 
 ## 2. 부트스트랩
 
@@ -89,7 +89,7 @@ const { ... } = await propagateAttributes(
   {
     sessionId: input.conversationId,
     traceName: "chat-message",
-    metadata: { promptVersion: PROMPT_VERSION },   // v3 — ADR-0003
+    metadata: { promptVersion: PROMPT_VERSION },   // v4 — ADR-0003
   },
   () => {
     setActiveTraceIO({ input: input.query });
@@ -175,7 +175,7 @@ trace (root: traceName='chat-message', sessionId=conversationId,
 ```
 
 미박제(후속):
-- LangGraph 노드 spans — `history_aware_rewrite`, `grade_docs`, `multi_query_retrieve`, `generate`, `grade_answer`, `regenerate`, `fallback`
+- LangGraph 노드 spans — `search_direct`, `generate_draft`, `claim_searches`, `fuse`, `generate_answer`
 - ChatOpenAI/structured output LLM call usage (input/output tokens) — `chat.service.ts`의 `finish.inputTokens`/`outputTokens`는 항상 undefined
 
 `@langfuse/langchain`의 `CallbackHandler`를 `graph.invoke({...}, { callbacks: [handler] })`로 주입하면 LCEL spans + LLM usage가 한 번에 박힌다 — 후속 슬라이스.

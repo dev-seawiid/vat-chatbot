@@ -51,17 +51,15 @@ jobs/ingest (Python ETL · uv)
 
 fetch 단계는 폐기 (law.go.kr가 안정 PDF URL을 노출하지 않음 — `data/rag_knowledge_base/`에 사전 배치).
 
-### Chat (`POST /api/chat`) — LangGraph self-correcting loop (ADR-0003)
+### Chat (`POST /api/chat`) — LangGraph v15 parallel (ADR-0003)
 
 | # | 노드 | 동작 |
 |---|------|------|
-| 1 | `history_aware_rewrite` | history + 현 질문 → standalone query (첫 turn은 원문 통과) |
-| 2 | `retrieve`               | dense top-50 (recall 우선, rerank가 절단) |
-| 3 | `rerank`                 | Voyage `rerank-2.5` → top-8 |
-| 4 | `grade_docs`             | 청크별 binary yes/no — 모두 no면 `multi_query_retrieve`(max 2회) |
-| 5 | `generate`               | `withStructuredOutput({answer, citations[]})` — 본문 token streaming 없이 1회 emit |
-| 6 | `grade_answer`           | faithfulness ∧ completeness — 한쪽 no면 `regenerate`(max 1회) |
-| 7 | `fallback`               | 모든 재시도 소진 시 "공식 자료에서 확인되지 않습니다" 강제 |
+| 1a | `search_direct`   | 원 query 1회 retrieve+rerank → top-8 |
+| 1b | `generate_draft`  | LLM 1회 `withStructuredOutput({draft, claims[≤6]})` — 사용자 미노출, 검색 키 |
+| 2  | `claim_searches`  | claim별 retrieve+rerank 병렬 → 각 top-4 |
+| 3  | `fuse`            | RRF(`k=60`)로 directChunks + claimChunks 결합 → top-10 |
+| 4  | `generate_answer` | `createReactAgent` + `responseFormat({answer, citations[]})` — chunk-grounded synthesis, draft는 가이드. 본문 token streaming 없이 1회 emit |
 
 자세한 노드·라우터·재시도 정책: [generation](./docs/generation.md).
 
@@ -93,4 +91,4 @@ pnpm db:studio                                       # Drizzle Studio
 
 ## Stack
 
-Next.js 16 · TypeScript · pnpm workspaces · Python 3.12 (uv) · LangChain.js + LangGraph · OpenAI gpt-5-nano · Voyage-4 + rerank-2.5 · Postgres + pgvector · Drizzle · Langfuse · Vercel · Neon · Upstash Redis.
+Next.js 16 · TypeScript · pnpm workspaces · Python 3.12 (uv) · LangChain.js + LangGraph · OpenAI gpt-5-mini · Voyage-4 + rerank-2.5 · Postgres + pgvector · Drizzle · Langfuse · Vercel · Neon · Upstash Redis.

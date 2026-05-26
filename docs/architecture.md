@@ -133,11 +133,11 @@ core.close(): Promise<void>
 // chat (→ generation.md)
 core.chat.ask(query: string, opts?: {
   conversationId?: string;     // 주입 시 messageRepo.recentTurns → multi-turn rewrite
-  // k/filter는 현재 graph 내부 retriever가 고정 옵션(k=50)으로 동작 — 인자 수신만 하고 효과 없음.
+  // k/filter는 현재 graph가 노드별 고정 k(prefilter=50, DIRECT_K=8, CLAIM_K=4)로 동작 — 인자 수신만 하고 효과 없음.
 }): Promise<{
   textStream: AsyncIterable<string>;       // 1회 emit (ADR-0003 §3 token streaming 폐기)
   citationStream: AsyncIterable<Citation>; // verify 통과분만, burst 후 close
-  chunks: SearchResult[];                  // rerank 통과 top-8 — 호출자 persist용
+  chunks: SearchResult[];                  // fuse 통과 top-10 — 호출자 persist용
   finish: Promise<{
     text: string;
     citations: Citation[];

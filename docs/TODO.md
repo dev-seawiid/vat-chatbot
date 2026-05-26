@@ -2,7 +2,7 @@
 
 후속 작업 — 한 줄 단위로 핵심만. 상세는 도입 시점에 재조사. 우선순위 라벨 없음(상황 따라).
 
-- **LangChain Langfuse CallbackHandler 통합** — `@langfuse/langchain::CallbackHandler`를 `graph.invoke(state, { callbacks: [handler] })`로 주입해 LangGraph 노드 LCEL spans + ChatOpenAI usage(input/output tokens) 자동 박제. 현재는 retrieval/embedding/rerank/pgvector 4개 span만 송출 — generate/grade 노드는 trace 부재. ([observability.md §4](./observability.md#4-trace-스키마))
+- **LangChain Langfuse CallbackHandler 통합** — `@langfuse/langchain::CallbackHandler`를 `graph.invoke(state, { callbacks: [handler] })`로 주입해 LangGraph 노드 LCEL spans + ChatOpenAI usage(input/output tokens) 자동 박제. 현재는 retrieval/embedding/rerank/pgvector 4개 span만 송출 — search_direct/generate_draft/claim_searches/fuse/generate_answer 노드는 trace 부재. ([observability.md §4](./observability.md#4-trace-스키마))
 - **ChatOpenAI usage_metadata 콜백** — `chat.service.ts`의 `finish.inputTokens`/`outputTokens`가 항상 undefined. LangChain callback에서 `llm.usage_metadata`를 캡처해 채울 것.
 - **Contextual Retrieval prefix** — ADR-0002 §1.4-2의 50-100토큰 도메인 요약 prepend(인덱싱 시 1회 LLM, prompt caching). retrieval error -49~67% 보고된 기법. chunking 단계에 sub-step 추가.
 - **Parent-child fetch** — chunking metadata에 박힌 `parent_article_id`로 검색 시 부모 조문 자동 fetch. ADR-0003에서 비범위 결정, 후속.
