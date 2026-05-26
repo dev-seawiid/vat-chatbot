@@ -13,6 +13,7 @@ import { RATE_LIMIT_ERROR_BODY } from "@/shared/lib/security";
 import { EmptyState } from "./EmptyState";
 import { type ChatMessage, MessageItem } from "./MessageItem";
 import { SessionIndicator } from "./SessionIndicator";
+import { TypingIndicator } from "./TypingIndicator";
 
 const ERROR_MESSAGES = {
   rateLimit: "오늘의 요청 한도를 모두 사용했어요. 내일 다시 시도해 주세요",
@@ -80,12 +81,17 @@ export function ChatWindow() {
 
   const isEmpty = messages.length === 0;
   const isStreaming = STREAMING_STATES.has(status);
-  const lastMessageId = messages[messages.length - 1]?.id;
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageId = lastMessage?.id;
   const sessionLabel = getSessionLabel({ isStreaming, isEmpty });
 
   const visibleMessages = messages.filter(
     (m): m is ChatMessage => m.role === "user" || m.role === "assistant",
   );
+
+  // ADR-0003 §3 — generate 완료 시 1회 emit이라 ask() resolve 전까진 assistant 메시지 부재.
+  // 그 침묵 구간(마지막이 user)에 placeholder 띄워 UI 응답성 확보.
+  const showTyping = isStreaming && lastMessage?.role === "user";
 
   return (
     <main className="mx-auto flex h-[calc(100vh-4rem)] w-full max-w-[860px] flex-col px-6">
@@ -118,6 +124,7 @@ export function ChatWindow() {
                 isStreaming={isStreaming && m.id === lastMessageId}
               />
             ))}
+            {showTyping && <TypingIndicator />}
           </div>
         )}
       </div>

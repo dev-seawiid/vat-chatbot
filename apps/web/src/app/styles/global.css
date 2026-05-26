@@ -377,6 +377,9 @@
   .animate-pulse-yellow {
     animation: pulse-yellow 2s ease-in-out infinite;
   }
+  .animate-typing-dot {
+    animation: typing-dot 1.2s ease-in-out infinite;
+  }
   .animate-float-slow {
     animation: float-slow 7s ease-in-out infinite;
   }
@@ -477,6 +480,18 @@
   }
   50% {
     box-shadow: 0 0 0 8px rgb(255 230 0 / 0);
+  }
+}
+
+@keyframes typing-dot {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
