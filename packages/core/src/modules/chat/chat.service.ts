@@ -89,13 +89,12 @@ export function createChatService(deps: {
       new HumanMessage(query),
     ];
 
-    // 최악 경로 14 노드: ha_rewrite → retrieve → rerank → grade_docs (fail) → mqr×2 + rerank+grade_docs ×2
-    // → generate → grade_answer (fail) → regenerate → grade_answer → END. +1 안전 마진.
-    const final = await graph.invoke({ messages }, { recursionLimit: 15 });
+    // multi-agent 그래프 — search(ReAct loop, tool 호출) → answer(structured output, tool 없음).
+    // search는 recall 우선(예외·조건부 chunk 포함), answer는 precision 우선(예외 분리·verbatim).
+    // search 내부 tool 호출은 createReactAgent 자체 step 제한. 외부 recursionLimit은 그래프 노드 단위.
+    const final = await graph.invoke({ messages }, { recursionLimit: 10 });
 
-    const chunks: SearchResult[] = final.documents.map(
-      (d) => d.metadata.searchResult,
-    );
+    const chunks: SearchResult[] = final.toolChunks ?? [];
     const citations = final.citations ?? [];
     const answer = final.answer ?? "";
 

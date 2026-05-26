@@ -1,9 +1,9 @@
-"""Docling JSON 캐시 → 법령 구조 메타 부착 노드.
+"""Docling JSON 캐시 → 법령 텍스트 노드(NFKC + chapter/section/refs 메타).
 
-순서가 중요: boundary(장·절·조·항·호·목·별표)는 NFKC 적용 전 raw 텍스트에서
-인식한다. NFKC는 ①·② 같은 enclosed numeric을 1·2로 분해해 항 번호 시그널을
-지우기 때문(원본 PDF가 호환 한자 U+F900-FAFF를 일관 없이 쓰는 문제 해결과
-별개로 발생하는 부작용).
+조·항·호 같은 구조 메타는 박지 않는다 — 텍스트에 "제N조"가 그대로 박혀있고
+chunker가 boundary로 split하므로 별도 state tracking이 불필요. 본 단계는
+(1) noise 제거, (2) chapter/section heading 추적, (3) 1-hop refs[] 추출,
+(4) NFKC 정규화만 책임.
 """
 
 import json
@@ -14,15 +14,27 @@ from pathlib import Path
 from ingest.parse.dto import Node, ParsedDocument
 
 _FILE_RE = re.compile(r"^(?P<law>.+?)\((?:법률|대통령령|재정경제부령)\)\(제\d+호\)\((?P<date>\d{8})\)")
-_CHAPTER_RE = re.compile(r"^제\s*(\d+)\s*장\s*(.+?)(?:\s*<.*?>)?$")
+# chapter 명이 같은 노드의 section heading을 흡수하던 사고 차단 — "제3장 영세율과 면세 제1절 영세율의 적용"
+# 같이 chapter + section이 한 줄에 합쳐진 경우, 다음 "제M절"·"제M조"·"<..>" 전까지만 chapter 명으로 인식.
+_CHAPTER_RE = re.compile(r"^제\s*(\d+)\s*장\s+(.+?)(?=\s+제\s*\d+\s*[절조]|\s*<|\s*$)")
+# 같은 노드에 inline section이 있으면 함께 추출.
+_INLINE_SECTION_RE = re.compile(r"제\s*(\d+)\s*절\s+(.+?)(?=\s+제\s*\d+\s*조|\s*<|$)")
 _SECTION_RE = re.compile(r"^제\s*(\d+)\s*절\s*(.+?)(?:\s*<.*?>)?$")
-_ARTICLE_RE = re.compile(r"^제\s*(\d+)\s*조(?:의\s*(\d+))?")
-_PARA_MAP = {chr(c): i + 1 for i, c in enumerate(range(0x2460, 0x2474))}  # ①–⑳
-_PARA_RE = re.compile(rf"^([{''.join(_PARA_MAP)}])")
-_ITEM_RE = re.compile(r"^(\d+)\.\s")
-_SUB_ITEM_RE = re.compile(r"^([가-힣])\.\s")
-_ANNEX_RE = re.compile(r"^\[?별표\s*(\d+(?:\s*의\s*\d+)?)\]?")
+# "부칙 <제XXXXX호, YYYY. M. D.>" — chapter로 처리해 본법과 시각적·메타 격리.
+_BUJIK_RE = re.compile(r"^부\s*칙(?:\s*<.*?>)?")
 _REF_RE = re.compile(r"제\s*\d+\s*조(?:의\s*\d+)?(?:제\s*\d+\s*항)?(?:제\s*\d+\s*호)?")
+
+# 페이지 footer 노이즈 패턴 — docling이 body로 분류했지만 정보 없음.
+_NOISE_PATTERNS = (
+    re.compile(r"^법제처\s"),
+    re.compile(r"^국가법령정보센터(\s|$)"),
+    re.compile(r"^\d+\.>$"),
+    re.compile(r"^\d+$"),
+)
+
+
+def _is_noise(text: str) -> bool:
+    return any(p.match(text) for p in _NOISE_PATTERNS)
 
 
 def _parse_filename(stem: str) -> tuple[str, str | None]:
@@ -39,11 +51,6 @@ def parse_file(extract_path: Path) -> ParsedDocument:
 
     chapter: str | None = None
     section: str | None = None
-    article: str | None = None
-    paragraph: int | None = None
-    item: int | None = None
-    sub_item: str | None = None
-    annex: str | None = None
 
     nodes: list[Node] = []
     for i, t in enumerate(data.get("texts", [])):
@@ -52,30 +59,21 @@ def parse_file(extract_path: Path) -> ParsedDocument:
         raw = (t.get("text") or "").strip()
         if not raw:
             continue
+        if _is_noise(raw):
+            continue
 
-        if m := _ANNEX_RE.match(raw):
-            annex = m.group(1).replace(" ", "")
-            paragraph = item = sub_item = None
+        # boundary는 NFKC 적용 전 raw에서 인식 — NFKC가 enclosed numeric 등을 분해해 시그널 손실하는
+        # 부작용 회피(현재 호 시그널은 chunker로 이관됐지만 chapter/section 인식도 동일 원칙).
+        if m := _BUJIK_RE.match(raw):
+            chapter = m.group(0).strip()
+            section = None
         elif m := _CHAPTER_RE.match(raw):
             chapter = f"제{m.group(1)}장 {m.group(2).strip()}"
-            section = article = None
-            paragraph = item = sub_item = None
-            annex = None
+            section = None
+            if sec_m := _INLINE_SECTION_RE.search(raw):
+                section = f"제{sec_m.group(1)}절 {sec_m.group(2).strip()}"
         elif m := _SECTION_RE.match(raw):
             section = f"제{m.group(1)}절 {m.group(2).strip()}"
-            paragraph = item = sub_item = None
-        elif m := _ARTICLE_RE.match(raw):
-            article = f"{m.group(1)}의{m.group(2)}" if m.group(2) else m.group(1)
-            paragraph = item = sub_item = None
-            annex = None
-        elif m := _PARA_RE.match(raw):
-            paragraph = _PARA_MAP[m.group(1)]
-            item = sub_item = None
-        elif m := _ITEM_RE.match(raw):
-            item = int(m.group(1))
-            sub_item = None
-        elif m := _SUB_ITEM_RE.match(raw):
-            sub_item = m.group(1)
 
         text = unicodedata.normalize("NFKC", raw)
         refs = sorted({r.replace(" ", "") for r in _REF_RE.findall(text)})
@@ -85,13 +83,8 @@ def parse_file(extract_path: Path) -> ParsedDocument:
             id=f"{law}#{i:04d}",
             law=law,
             effective_date=eff,
-            article=article,
-            paragraph=paragraph,
-            item=item,
-            sub_item=sub_item,
-            kind="annex" if annex else "body",
-            annex=annex,
-            heading_path=[h for h in (chapter, section) if h],
+            chapter=chapter,
+            section=section,
             text=text,
             refs=refs,
             page=page,

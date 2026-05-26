@@ -1,5 +1,8 @@
-import type { Document } from "@langchain/core/documents";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  type BaseMessage,
+  HumanMessage,
+  isToolMessage,
+} from "@langchain/core/messages";
 import {
   Annotation,
   END,
@@ -7,40 +10,45 @@ import {
   START,
   StateGraph,
 } from "@langchain/langgraph";
-import { MultiQueryRetriever } from "@langchain/classic/retrievers/multi_query";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { z } from "zod";
 
-import { type Citation, findQuoteStart, toCitation } from "#common/citation";
+import {
+  type Citation,
+  findQuote,
+  toCitation,
+  toCitationUnmatched,
+} from "#common/citation";
 import type { SearchResult } from "#modules/retrieval/chunk.repository";
 import { VoyageRerankCompressor } from "#modules/retrieval/rerank.adapter";
 import type { RetrieveFn } from "#modules/retrieval/retrieval.service";
 import {
   type PgvectorDocMetadata,
-  PgvectorRetriever,
+  toDocument,
 } from "#modules/retrieval/retriever.adapter";
 
 import type { GenerationModel } from "./generation.adapter";
-import {
-  buildGenerateSystem,
-  GRADE_ANSWER_PROMPT,
-  GRADE_DOCS_PROMPT,
-  MULTI_QUERY_PROMPT_TEMPLATE,
-  REGENERATE_INSTRUCTION,
-  REPHRASE_PROMPT,
-} from "./prompt";
+import { ANSWER_SYSTEM, DRAFT_WITH_CLAIMS_SYSTEM } from "./prompt";
+import { createAnswerTools } from "./tools";
 
-// retrieve top-k는 rerank가 RERANK_K로 절단하므로 recall 우선 50. ADR-0003 §2 다이어그램 기준.
-const RETRIEVE_K = 50;
-const RERANK_K = 8;
-const MULTI_QUERY_COUNT = 3;
-// ADR-0003 §5 — 무한 루프 cap. 초과 시 fallback 노드로 분기.
-const MAX_REWRITES = 2;
-const MAX_REGENERATES = 1;
-const FALLBACK_ANSWER = "공식 자료에서 확인되지 않습니다";
+// 그래프 구조 (v15, ADR-0003 §3): HyDE + Claim Decomposition + RRF.
+//   START ─┬─ search_direct ──────────────┐
+//          │                              ├─ fuse(RRF) ─ answer ─ END
+//          └─ generate_draft → claim_searches ┘
+//
+// search_direct: 원 query 1회 retrieve+rerank (k=8).
+// generate_draft: LLM 1회 structured output {draft, claims[≤6]} — 사용자에게 안 보임, 검색 키.
+// claim_searches: claims별 retrieve+rerank 병렬 (각 k=4).
+// fuse: 모든 list를 RRF로 결합 (rank 기반 가중) → top 10.
+// answer: createReactAgent + structured output. citation substring 검증.
 
-// === LLM 출력 스키마 ===
-// AnswerSchema: quote 길이 제약은 prompt에서만 안내(strict json_schema는 zod string min/max 제한적).
-// citation은 verify(findQuoteStart) 단계에서 substring 확인 후 통과분만 남긴다.
+// draft+claims structured output. draft는 디버그용, claims만 검색 키.
+const DraftSchema = z.object({
+  draft: z.string(),
+  claims: z.array(z.string()).max(6),
+});
+type Draft = z.infer<typeof DraftSchema>;
+
 const AnswerSchema = z.object({
   answer: z.string(),
   citations: z.array(
@@ -51,35 +59,75 @@ const AnswerSchema = z.object({
   ),
 });
 
-// CRAG/Self-RAG 정설 — 청크별 binary yes/no.
-const GradeDocSchema = z.object({
-  score: z.enum(["yes", "no"]),
-});
+export type AgentAnswer = z.infer<typeof AnswerSchema>;
 
-// faithfulness=환각 없음, completeness=핵심 정보(숫자·조문·기한 등) 누락 없음. 둘 다 yes여야 pass.
-const GradeAnswerSchema = z.object({
-  faithfulness: z.enum(["yes", "no"]),
-  completeness: z.enum(["yes", "no"]),
-});
+const RAG_DEBUG = process.env.RAG_DEBUG === "1";
+function dbg(node: string, payload: Record<string, unknown>): void {
+  if (!RAG_DEBUG) return;
+  console.error(`\n========== [rag:${node}] ==========`);
+  console.error(JSON.stringify(payload, null, 2));
+}
+const PREVIEW = 250;
+function preview(s: string, n = PREVIEW): string {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > n ? flat.slice(0, n) + "…" : flat;
+}
+
+// retrieval.service.retrieve는 embed+pgvector top-k만, rerank는 별도. 본 헬퍼가 50→k rerank를 묶음.
+const PREFILTER_K = 50;
+async function searchWithRerank(
+  retrieve: RetrieveFn,
+  rerank: VoyageRerankCompressor,
+  query: string,
+  k: number,
+): Promise<SearchResult[]> {
+  const prefilter = await retrieve(query, { k: PREFILTER_K });
+  const docs = prefilter.map(toDocument);
+  const ranked = (await rerank.compressDocuments(docs, query)) as ReturnType<
+    typeof toDocument
+  >[];
+  return ranked
+    .slice(0, k)
+    .map((d) => (d.metadata as PgvectorDocMetadata).searchResult);
+}
+
+// Reciprocal Rank Fusion. 같은 chunk가 여러 list 상위에 등장하면 score 누적되어 위로 올라옴.
+// k=60은 원논문(Cormack 2009) 표준값. list별 rank 0-base.
+const RRF_K = 60;
+function reciprocalRankFusion(
+  lists: SearchResult[][],
+  topN: number,
+): SearchResult[] {
+  const scoreById = new Map<string, number>();
+  const chunkById = new Map<string, SearchResult>();
+  for (const list of lists) {
+    list.forEach((c, rank) => {
+      scoreById.set(c.chunkId, (scoreById.get(c.chunkId) ?? 0) + 1 / (RRF_K + rank));
+      if (!chunkById.has(c.chunkId)) chunkById.set(c.chunkId, c);
+    });
+  }
+  return Array.from(scoreById.entries())
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, topN)
+    .map(([id]) => chunkById.get(id)!);
+}
 
 const RagState = Annotation.Root({
   ...MessagesAnnotation.spec,
-  // history_aware_rewrite 결과 — retrieve/multi_query_retrieve에 들어가는 standalone query.
-  standaloneQuery: Annotation<string>(),
-  // rerank 통과한 top-k documents — generate가 context로 사용. multi_query_retrieve도 같은 채널.
-  documents: Annotation<Document<PgvectorDocMetadata>[]>(),
-  // 검증 통과 citations.
-  citations: Annotation<Citation[]>(),
-  // 최종 답변 텍스트.
+  directChunks: Annotation<SearchResult[]>(),
+  draft: Annotation<string>(),
+  claims: Annotation<string[]>(),
+  claimChunks: Annotation<SearchResult[][]>(),
+  // fuse 결과 — answer 노드 입력 + chat.service의 retrievedChunkIds persist 키.
+  // 이전 그래프와 동일 키명을 유지해 chat.service 인터페이스 변경 없음.
+  toolChunks: Annotation<SearchResult[]>(),
   answer: Annotation<string>(),
-  // 재시도 카운터(기본 0). 노드가 절대값을 반환해 갱신.
-  rewriteCount: Annotation<number>(),
-  regenerateCount: Annotation<number>(),
-  // grade_docs 청크별 점수 — router가 anyYes 판정.
-  docGrades: Annotation<("yes" | "no")[]>(),
-  // grade_answer 실패 시 regenerate가 system에 prepend할 피드백 문구. 빈 문자열 = pass.
-  regenerateFeedback: Annotation<string>(),
+  citations: Annotation<Citation[]>(),
 });
+
+const DIRECT_K = 8;
+const CLAIM_K = 4;
+const FUSE_TOP_N = 10;
 
 export type RagGraphDeps = {
   generationModel: GenerationModel;
@@ -92,234 +140,226 @@ export function createRagGraph({
   retrieve,
   voyageApiKey,
 }: RagGraphDeps) {
-  const baseRetriever = new PgvectorRetriever({
-    retrieve,
-    options: { k: RETRIEVE_K },
-  });
-  const rerank = new VoyageRerankCompressor({
-    apiKey: voyageApiKey,
-    topK: RERANK_K,
-  });
-  const multiQueryRetriever = MultiQueryRetriever.fromLLM({
-    llm: generationModel.model,
-    retriever: baseRetriever,
-    queryCount: MULTI_QUERY_COUNT,
-    prompt: MULTI_QUERY_PROMPT_TEMPLATE,
-  });
   const { model } = generationModel;
-  const answerStructured = model.withStructuredOutput(AnswerSchema, {
-    method: "jsonSchema",
-    strict: true,
-    name: "Answer",
-  });
-  const gradeDocStructured = model.withStructuredOutput(GradeDocSchema, {
-    method: "jsonSchema",
-    strict: true,
-    name: "GradeDoc",
-  });
-  const gradeAnswerStructured = model.withStructuredOutput(GradeAnswerSchema, {
-    method: "jsonSchema",
-    strict: true,
-    name: "GradeAnswer",
-  });
+  const rerank = new VoyageRerankCompressor({ apiKey: voyageApiKey });
 
-  // === Nodes ===
-
-  const historyAwareRewrite = async (state: typeof RagState.State) => {
+  // === 갈래 A: 원 query 직접 검색 ===
+  const searchDirectNode = async (state: typeof RagState.State) => {
     const last = state.messages[state.messages.length - 1];
-    if (!last) throw new Error("rag-graph: empty messages");
-    const lastUser = last.text;
-    const prior = state.messages.slice(0, -1);
-    if (prior.length === 0) {
-      return { standaloneQuery: lastUser };
-    }
-    const res = await model.invoke([
-      new SystemMessage(REPHRASE_PROMPT),
-      ...prior,
-      new HumanMessage(`현 질문: ${lastUser}`),
-    ]);
-    return { standaloneQuery: res.text };
+    const query = last?.text ?? "";
+    const chunks = await searchWithRerank(retrieve, rerank, query, DIRECT_K);
+    dbg("search_direct", {
+      query: preview(query, 200),
+      chunkCount: chunks.length,
+      chunkIds: chunks.map((c) => c.chunkId),
+    });
+    return { directChunks: chunks };
   };
 
-  const retrieveNode = async (state: typeof RagState.State) => {
-    const docs = await baseRetriever.invoke(state.standaloneQuery);
-    return { documents: docs };
+  // === 갈래 B-1: LLM 자체지식 draft + atomic claims 생성 ===
+  // 출력은 사용자에게 안 보임, 검색 키로만. hallucination은 fuse + answer의 chunk-grounding에서 차단.
+  const generateDraftNode = async (state: typeof RagState.State) => {
+    const last = state.messages[state.messages.length - 1];
+    const query = last?.text ?? "";
+    const draftModel = model.withStructuredOutput(DraftSchema);
+    const result = (await draftModel.invoke([
+      { role: "system", content: DRAFT_WITH_CLAIMS_SYSTEM },
+      { role: "user", content: query },
+    ])) as Draft;
+    dbg("generate_draft", {
+      query: preview(query, 200),
+      draft: preview(result.draft, 400),
+      claims: result.claims,
+    });
+    return { draft: result.draft, claims: result.claims };
   };
 
-  const rerankNode = async (state: typeof RagState.State) => {
-    const ranked = (await rerank.compressDocuments(
-      state.documents,
-      state.standaloneQuery,
-    )) as Document<PgvectorDocMetadata>[];
-    return { documents: ranked };
-  };
-
-  // 청크별 병렬 binary 판정. 하나라도 yes면 pass — documents는 필터링 없이 그대로 generate로.
-  const gradeDocs = async (state: typeof RagState.State) => {
+  // === 갈래 B-2: claim별 retrieve+rerank 병렬 ===
+  const claimSearchesNode = async (state: typeof RagState.State) => {
+    const claims = state.claims ?? [];
     const results = await Promise.all(
-      state.documents.map((doc) =>
-        gradeDocStructured.invoke([
-          new SystemMessage(GRADE_DOCS_PROMPT),
-          new HumanMessage(
-            `질의: ${state.standaloneQuery}\n\n청크:\n${doc.pageContent}`,
-          ),
-        ]),
-      ),
+      claims.map((c) => searchWithRerank(retrieve, rerank, c, CLAIM_K)),
     );
-    return { docGrades: results.map((r) => r.score) };
+    dbg("claim_searches", {
+      perClaim: results.map((r, i) => ({
+        claim: preview(claims[i] ?? "", 120),
+        chunkIds: r.map((c) => c.chunkId),
+      })),
+    });
+    return { claimChunks: results };
   };
 
-  // MultiQueryRetriever가 변형 생성·각 retrieve·dedupe까지 수행. 본 노드는 counter만 증분.
-  const multiQueryRetrieve = async (state: typeof RagState.State) => {
-    const docs = (await multiQueryRetriever.invoke(
-      state.standaloneQuery,
-    )) as Document<PgvectorDocMetadata>[];
-    return {
-      documents: docs,
-      rewriteCount: (state.rewriteCount ?? 0) + 1,
-    };
+  // === fuse: 두 갈래 ranked list를 RRF로 결합 → top N ===
+  const fuseNode = async (state: typeof RagState.State) => {
+    const lists: SearchResult[][] = [];
+    if (state.directChunks?.length) lists.push(state.directChunks);
+    if (state.claimChunks?.length) lists.push(...state.claimChunks);
+    const fused = reciprocalRankFusion(lists, FUSE_TOP_N);
+    dbg("fuse", {
+      listCount: lists.length,
+      perListCount: lists.map((l) => l.length),
+      fusedCount: fused.length,
+      fusedIds: fused.map((c) => c.chunkId),
+    });
+    return { toolChunks: fused };
   };
 
-  const runGenerate = async (
-    state: typeof RagState.State,
-    feedback: string | undefined,
-  ) => {
-    const chunks: SearchResult[] = state.documents.map(
-      (d) => d.metadata.searchResult,
+  // === answer: createReactAgent + calc 도구 + structured output. citation substring 검증. ===
+  // 검증 모드 — draft + claim-evidence 매핑을 같이 받아, chunk만 보고 처음부터 합성하지 않고
+  // draft의 각 claim을 evidence로 verify·reject (Verify-and-Edit / ALCE 패턴).
+  const answerNode = async (state: typeof RagState.State) => {
+    const chunks = state.toolChunks ?? [];
+    const draft = state.draft ?? "";
+    const claims = state.claims ?? [];
+    const claimChunks = state.claimChunks ?? [];
+    const today = new Date().toISOString().slice(0, 10);
+    const tools = createAnswerTools();
+    const agent = createReactAgent({
+      llm: model,
+      tools,
+      prompt: `<today>${today}</today>\n\n${ANSWER_SYSTEM}`,
+      responseFormat: AnswerSchema,
+    });
+
+    const history = state.messages.slice(0, -1);
+    const last = state.messages[state.messages.length - 1];
+    const lastUserText = last?.text ?? "";
+    const combined = new HumanMessage(
+      [
+        `<draft>\n${draft || "(없음)"}\n</draft>`,
+        `<claim_evidence>\n${serializeClaimEvidence(claims, claimChunks)}\n</claim_evidence>`,
+        `<chunks>\n${serializeChunks(chunks)}\n</chunks>`,
+        `<question>\n${lastUserText}\n</question>`,
+      ].join("\n\n"),
     );
+
+    const result = await agent.invoke({ messages: [...history, combined] });
+    const structured = (
+      result as unknown as { structuredResponse?: AgentAnswer }
+    ).structuredResponse;
+    const finalAnswer = structured?.answer ?? "";
+    const rawCitations = structured?.citations ?? [];
+
+    const answerToolMessages = (result.messages as BaseMessage[]).filter(
+      isToolMessage,
+    );
+
     const chunkById = new Map(chunks.map((c) => [c.chunkId, c]));
-    const last = state.messages[state.messages.length - 1];
-    if (!last) throw new Error("rag-graph: empty messages");
-    const lastUser = last.text;
-    const prior = state.messages.slice(0, -1);
-
-    const systemMessages = [new SystemMessage(buildGenerateSystem(chunks))];
-    if (feedback) {
-      systemMessages.push(
-        new SystemMessage(`${REGENERATE_INSTRUCTION}\n${feedback}`),
-      );
-    }
-
-    const result = await answerStructured.invoke([
-      ...systemMessages,
-      ...prior,
-      new HumanMessage(lastUser),
-    ]);
-
     const verified: Citation[] = [];
-    for (const c of result.citations) {
-      const chunk = chunkById.get(c.chunkId);
-      if (!chunk) continue;
-      const start = findQuoteStart(chunk.content, c.quote);
-      if (start < 0) continue;
-      verified.push(toCitation(chunk, c.quote, start));
+    const verifyTrace: Array<Record<string, unknown>> = [];
+    for (const c of rawCitations) {
+      const chunk = resolveChunk(c.chunkId, chunkById);
+      if (!chunk) {
+        verifyTrace.push({
+          chunkId: c.chunkId,
+          quote: c.quote,
+          result: "DROP — chunkId 미일치",
+        });
+        continue;
+      }
+      const match = findQuote(chunk.content, c.quote);
+      if (!match) {
+        // 6-tier 매칭 모두 실패 — chunk는 RRF가 적합하다 판단했으니 highlight 없이 노출.
+        verifyTrace.push({
+          chunkId: chunk.chunkId,
+          quote: c.quote,
+          chunkContent: preview(chunk.content, 400),
+          result: "FALLBACK — quote substring 불일치, highlight 없이 노출",
+        });
+        verified.push(toCitationUnmatched(chunk, c.quote));
+        continue;
+      }
+      verifyTrace.push({
+        chunkId: chunk.chunkId,
+        rawQuote: c.quote,
+        matchRange: match,
+        normalizedAdjusted: c.chunkId !== chunk.chunkId,
+        result: "OK",
+      });
+      verified.push(toCitation(chunk, match));
     }
-    return { answer: result.answer, citations: verified };
+
+    dbg("answer", {
+      chunkInput: chunks.length,
+      lastUser: preview(lastUserText, 200),
+      toolCalls: answerToolMessages.map((m) => ({
+        name: m.name,
+        contentPreview: preview(
+          typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+          200,
+        ),
+      })),
+      llmRaw: { answer: finalAnswer, citations: rawCitations },
+      verify: verifyTrace,
+      output: { answer: finalAnswer, verifiedCount: verified.length },
+    });
+
+    return { answer: finalAnswer, citations: verified };
   };
 
-  const generate = async (state: typeof RagState.State) =>
-    runGenerate(state, undefined);
-
-  const regenerate = async (state: typeof RagState.State) => {
-    const result = await runGenerate(state, state.regenerateFeedback);
-    return {
-      ...result,
-      regenerateCount: (state.regenerateCount ?? 0) + 1,
-    };
-  };
-
-  // faithfulness/completeness 둘 다 yes여야 pass. 한쪽 no면 그 사실을 regenerate 피드백으로 박제.
-  const gradeAnswer = async (state: typeof RagState.State) => {
-    const last = state.messages[state.messages.length - 1];
-    if (!last) throw new Error("rag-graph: empty messages");
-    const ctx = state.documents
-      .map((d) => `[chunkId=${d.metadata.chunkId}] ${d.pageContent}`)
-      .join("\n\n");
-    const grade = await gradeAnswerStructured.invoke([
-      new SystemMessage(GRADE_ANSWER_PROMPT),
-      new HumanMessage(
-        `질문: ${last.text}\n\n답변:\n${state.answer}\n\ncontext:\n${ctx}`,
-      ),
-    ]);
-    const issues: string[] = [];
-    if (grade.faithfulness === "no")
-      issues.push("환각·근거 부족이 지적됨 — context에 없는 내용을 단정하지 말 것.");
-    if (grade.completeness === "no")
-      issues.push(
-        "핵심 정보 누락이 지적됨 — 숫자·조문·서식·기한 등을 빠짐없이 인용할 것.",
-      );
-    return { regenerateFeedback: issues.join(" ") };
-  };
-
-  // ADR-0003 §5 — 모든 재시도 소진 시 호출. 답변 강제 교체, citations 비움.
-  const fallback = async () => {
-    return { answer: FALLBACK_ANSWER, citations: [] };
-  };
-
-  // === Routers ===
-
-  const routeAfterGradeDocs = (
-    state: typeof RagState.State,
-  ): "generate" | "multi_query_retrieve" | "fallback" => {
-    const anyYes = (state.docGrades ?? []).some((s) => s === "yes");
-    if (anyYes) return "generate";
-    if ((state.rewriteCount ?? 0) < MAX_REWRITES) return "multi_query_retrieve";
-    return "fallback";
-  };
-
-  const routeAfterGradeAnswer = (
-    state: typeof RagState.State,
-  ): "end" | "regenerate" | "fallback" => {
-    const pass = !state.regenerateFeedback;
-    if (pass) return "end";
-    if ((state.regenerateCount ?? 0) < MAX_REGENERATES) return "regenerate";
-    return "fallback";
-  };
-
-  // === 노드 등록 — 각 노드는 위 정의된 클로저, 외부 의존(LLM·retriever·rerank)을 캡처 ===
   return new StateGraph(RagState)
-    .addNode("history_aware_rewrite", historyAwareRewrite) // history → standalone query
-    .addNode("retrieve", retrieveNode) // dense vector top-50
-    .addNode("rerank", rerankNode) // Voyage rerank-2.5 → top-8
-    .addNode("grade_docs", gradeDocs) // 청크별 binary yes/no 병렬 판정
-    .addNode("multi_query_retrieve", multiQueryRetrieve) // grade_docs fail 분기 — 3 변형 + union
-    .addNode("generate", generate) // structured output {answer, citations[]}
-    .addNode("grade_answer", gradeAnswer) // faithfulness AND completeness 평가
-    .addNode("regenerate", regenerate) // grade_answer fail 분기 — 피드백 박제 후 재생성
-    .addNode("fallback", fallback) // 모든 재시도 소진 — 답변 강제 교체
-
-    // === Happy path 무조건부 엣지 ===
-    .addEdge(START, "history_aware_rewrite")
-    .addEdge("history_aware_rewrite", "retrieve")
-    .addEdge("retrieve", "rerank")
-    .addEdge("rerank", "grade_docs") // 첫 진입 + multi_query 재진입 모두 본 엣지로 합류
-
-    // === 분기 1: grade_docs 라우터 (routeAfterGradeDocs 참조) ===
-    //   anyYes=true              → generate            (pass)
-    //   anyYes=false, rc<2       → multi_query_retrieve(재시도)
-    //   anyYes=false, rc>=2      → fallback            (소진)
-    .addConditionalEdges("grade_docs", routeAfterGradeDocs, {
-      generate: "generate",
-      multi_query_retrieve: "multi_query_retrieve",
-      fallback: "fallback",
-    })
-    .addEdge("multi_query_retrieve", "rerank") // ← 재진입 루프: rerank → grade_docs 다시 평가
-
-    .addEdge("generate", "grade_answer") // generate 직후 항상 평가
-
-    // === 분기 2: grade_answer 라우터 (routeAfterGradeAnswer 참조) ===
-    //   feedback==""             → END                 (pass: 둘 다 yes)
-    //   feedback!="", regen<1    → regenerate          (재시도 1회)
-    //   feedback!="", regen>=1   → fallback            (소진)
-    .addConditionalEdges("grade_answer", routeAfterGradeAnswer, {
-      end: END,
-      regenerate: "regenerate",
-      fallback: "fallback",
-    })
-    .addEdge("regenerate", "grade_answer") // ← 재진입 루프: 1회 재평가 후 위 라우터에서 fallback 또는 END
-
-    .addEdge("fallback", END) // fallback 노드는 단일 출구
+    .addNode("search_direct", searchDirectNode)
+    .addNode("generate_draft", generateDraftNode)
+    .addNode("claim_searches", claimSearchesNode)
+    .addNode("fuse", fuseNode)
+    .addNode("generate_answer", answerNode)
+    .addEdge(START, "search_direct")
+    .addEdge(START, "generate_draft")
+    .addEdge("generate_draft", "claim_searches")
+    .addEdge(["search_direct", "claim_searches"], "fuse")
+    .addEdge("fuse", "generate_answer")
+    .addEdge("generate_answer", END)
     .compile();
 }
 
 export type RagGraph = ReturnType<typeof createRagGraph>;
+
+// claim-evidence 매핑을 LLM-facing 직렬 포맷으로. claim[i] ↔ claimChunks[i] index-aligned.
+// chunkId만 노출 — chunk 본문은 <chunks> 블록에 한 번만 직렬화해 중복 토큰 방지.
+function serializeClaimEvidence(
+  claims: string[],
+  claimChunks: SearchResult[][],
+): string {
+  if (claims.length === 0) return "(없음)";
+  return claims
+    .map((claim, i) => {
+      const ids = (claimChunks[i] ?? []).map((c) => c.chunkId).join(", ");
+      return `claim ${i + 1}: ${claim}\n  evidence chunkIds: [${ids || "없음"}]`;
+    })
+    .join("\n\n");
+}
+
+// chunk를 answer agent의 LLM-facing 직렬 포맷으로. citation chunkId 라벨이 ANSWER_SYSTEM 규칙과 동일.
+function serializeChunks(chunks: SearchResult[]): string {
+  if (chunks.length === 0) return "검색 결과 없음.";
+  return chunks
+    .map((c) => {
+      const meta = [
+        c.docTitle,
+        c.docVersion ? `버전 ${c.docVersion}` : null,
+        c.page != null ? `p.${c.page}` : null,
+        c.sectionPath,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `[chunkId=${c.chunkId}] ${meta}\n${c.content}`;
+    })
+    .join("\n\n");
+}
+
+// 모델이 chunkId 끝자리 1글자를 흔히 hallucinate함 (UUID 36자 중 1자 차이). strict 매칭 실패 시
+// UUID 8자 prefix로 매칭. fuse 결과가 turn당 ~10개라 충돌 위험 미미.
+function resolveChunk(
+  modelChunkId: string,
+  registry: Map<string, SearchResult>,
+): SearchResult | null {
+  const strict = registry.get(modelChunkId);
+  if (strict) return strict;
+  const prefix = modelChunkId.slice(0, 8);
+  if (prefix.length < 8) return null;
+  const candidates: SearchResult[] = [];
+  for (const c of registry.values()) {
+    if (c.chunkId.slice(0, 8) === prefix) candidates.push(c);
+  }
+  return candidates.length === 1 ? candidates[0]! : null;
+}

@@ -90,5 +90,55 @@ export function createChunkRepository(db: Db) {
     },
   );
 
-  return { search };
+  /**
+   * 조문 번호 직접 조회 — agent의 `article_lookup` 도구 백엔드.
+   * metadata.law·article·paragraph로 필터, embedding 무관.
+   * paragraph가 주어지면 정확 일치, 없으면 같은 law·article의 모든 항을 반환.
+   */
+  const findByArticle = traceSpan(
+    {
+      name: "pgvector.find_by_article",
+      attrs: ([{ law, article, paragraph }]) => ({
+        input: { law, article, paragraph: paragraph ?? null },
+      }),
+      output: (rows) => ({ hitCount: rows.length }),
+    },
+    async ({
+      law,
+      article,
+      paragraph,
+    }: {
+      law: string;
+      article: string;
+      paragraph?: number;
+    }): Promise<SearchResult[]> => {
+      const paragraphVal = paragraph ?? null;
+
+      return db
+        .select({
+          chunkId: sql<string>`${chunks.id}::text`.as("chunkId"),
+          docId: sql<string>`${chunks.docId}::text`.as("docId"),
+          sourceId: sql<string>`${chunks.metadata}->>'source_id'`.as("sourceId"),
+          docTitle: documents.title,
+          docVersion: documents.version,
+          sourceUrl: documents.sourceUrl,
+          page: chunks.page,
+          sectionPath: chunks.sectionPath,
+          content: chunks.content,
+          metadata: chunks.metadata,
+          // 임베딩 비교가 없으니 0으로 둠 — SearchResult 인터페이스만 맞춤. agent는 similarity를 안 봄.
+          similarity: sql<number>`0`.as("similarity"),
+        })
+        .from(chunks)
+        .innerJoin(documents, eq(documents.id, chunks.docId))
+        .where(
+          sql`${chunks.metadata}->>'law' = ${law} AND ${chunks.metadata}->>'article' = ${article} AND (${paragraphVal}::int IS NULL OR (${chunks.metadata}->>'paragraph')::int = ${paragraphVal}::int)`,
+        )
+        .orderBy(
+          sql`COALESCE((${chunks.metadata}->>'paragraph')::int, 0), COALESCE((${chunks.metadata}->>'item')::int, 0)`,
+        ) as Promise<SearchResult[]>;
+    },
+  );
+
+  return { search, findByArticle };
 }

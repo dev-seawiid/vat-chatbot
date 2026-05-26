@@ -17,6 +17,13 @@ export type RetrieveFn = (
   opts?: RetrieveOptions,
 ) => Promise<SearchResult[]>;
 
+// agent의 article_lookup 도구가 호출. paragraph는 옵션 — 없으면 같은 article의 모든 항 반환.
+export type LookupArticleFn = (args: {
+  law: string;
+  article: string;
+  paragraph?: number;
+}) => Promise<SearchResult[]>;
+
 export type RetrievalService = ReturnType<typeof createRetrievalService>;
 
 // spec §3.2 — top-k=8 (recall과 system prompt 길이 균형). 호출자가 opts.k로 override 가능.
@@ -64,5 +71,8 @@ export function createRetrievalService(deps: {
       });
     },
   );
-  return { retrieve };
+
+  const lookupArticle: LookupArticleFn = (args) => chunkRepo.findByArticle(args);
+
+  return { retrieve, lookupArticle };
 }

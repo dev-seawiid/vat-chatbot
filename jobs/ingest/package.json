@@ -8,6 +8,6 @@
     "parse": "uv run python scripts/parse_extracted.py",
     "chunk": "uv run python scripts/chunk_pdfs.py",
     "embed": "uv run python scripts/embed_chunks.py",
-    "load": "uv run python scripts/load_to_db.py"
+    "load": "uv run python scripts/load_to_db.py --reset"
   }
 }
