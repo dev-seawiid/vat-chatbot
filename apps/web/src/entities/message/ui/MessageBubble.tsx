@@ -11,7 +11,7 @@ type MessageBubbleProps = {
   text: string;
   citations: Citation[];
   isStreaming?: boolean;
-  onCiteClick?: (n: number) => void;
+  onCiteClick?: () => void;
 };
 
 export function MessageBubble({
@@ -80,16 +80,10 @@ export function MessageBubble({
           <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-fg-muted">
             참고 · REFS
           </span>
-          {visibleCitations.map((c, idx) => {
-            const n = idx + 1;
-            return (
-              <CitationChip
-                key={c.chunkId}
-                n={n}
-                onClick={() => onCiteClick?.(n)}
-              />
-            );
-          })}
+          <CitationChip
+            label={visibleCitations.map((_, idx) => idx + 1).join(",")}
+            onClick={() => onCiteClick?.()}
+          />
         </footer>
       )}
     </article>

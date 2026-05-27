@@ -16,15 +16,9 @@ type CitationPanelProps = {
   open: boolean;
   onClose: () => void;
   citations: Citation[];
-  selected: number;
 };
 
-export function CitationPanel({
-  open,
-  onClose,
-  citations,
-  selected,
-}: CitationPanelProps) {
+export function CitationPanel({ open, onClose, citations }: CitationPanelProps) {
   const isEmpty = citations.length === 0;
 
   return (
@@ -38,7 +32,7 @@ export function CitationPanel({
         <ResponsiveSheetHeader>
           <ResponsiveSheetTitle>References · 인용 근거</ResponsiveSheetTitle>
           <ResponsiveSheetDescription>
-            답변 아래 참고 칩을 클릭한 출처가 강조됩니다.
+            답변에 사용된 출처 목록입니다.
           </ResponsiveSheetDescription>
         </ResponsiveSheetHeader>
 
@@ -50,17 +44,13 @@ export function CitationPanel({
               </p>
             </li>
           ) : (
-            citations.map((citation, idx) => {
-              const index = idx + 1;
-              return (
-                <CitationCard
-                  key={citation.chunkId}
-                  citation={citation}
-                  index={index}
-                  isSelected={index === selected}
-                />
-              );
-            })
+            citations.map((citation, idx) => (
+              <CitationCard
+                key={citation.chunkId}
+                citation={citation}
+                index={idx + 1}
+              />
+            ))
           )}
         </ol>
       </ResponsiveSheetContent>

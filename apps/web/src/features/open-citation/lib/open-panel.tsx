@@ -7,19 +7,10 @@ import { CitationPanel } from "../ui/CitationPanel";
 
 type OpenCitationPanelArgs = {
   citations: Citation[];
-  selected: number;
 };
 
-export function openCitationPanel({
-  citations,
-  selected,
-}: OpenCitationPanelArgs): void {
+export function openCitationPanel({ citations }: OpenCitationPanelArgs): void {
   overlay.open(({ isOpen, close }) => (
-    <CitationPanel
-      open={isOpen}
-      citations={citations}
-      selected={selected}
-      onClose={close}
-    />
+    <CitationPanel open={isOpen} citations={citations} onClose={close} />
   ));
 }

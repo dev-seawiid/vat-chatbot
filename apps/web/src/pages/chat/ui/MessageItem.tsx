@@ -32,7 +32,7 @@ export function MessageItem({ message, isStreaming }: MessageItemProps) {
         text={text}
         citations={citations}
         isStreaming={bubbleStreaming}
-        onCiteClick={(n) => openCitationPanel({ citations, selected: n })}
+        onCiteClick={() => openCitationPanel({ citations })}
       />
       {showFeedback && (
         <div className="pl-5">

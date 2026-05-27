@@ -8,12 +8,11 @@ import { HighlightedQuote } from "./HighlightedQuote";
 
 type CitationCardProps = {
   citation: Citation;
-  /** 1-based — CitationPanel의 selected와 비교 */
+  /** 1-based 표시 인덱스 */
   index: number;
-  isSelected: boolean;
 };
 
-export function CitationCard({ citation, index, isSelected }: CitationCardProps) {
+export function CitationCard({ citation, index }: CitationCardProps) {
   const meta = [
     citation.docVersion,
     citation.page != null ? `p.${citation.page}` : null,
@@ -25,31 +24,17 @@ export function CitationCard({ citation, index, isSelected }: CitationCardProps)
   return (
     <li
       className={cn(
-        "stagger-enter relative border bg-surface-1 p-5",
-        "transition-[border-color,transform,box-shadow] duration-300",
-        isSelected
-          ? "-translate-y-[2px] border-yellow/40 shadow-[0_0_24px_-8px_rgb(255_230_0/0.3)]"
-          : "border-white/10 hover:border-white/20",
+        "stagger-enter relative border border-white/10 bg-surface-1 p-5",
+        "transition-[border-color] duration-200 hover:border-white/20",
       )}
       style={{ animationDelay: `${80 + (index - 1) * 70}ms` }}
     >
-      {isSelected && (
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 w-[3px] bg-yellow"
-        />
-      )}
-
       <header className="flex items-start gap-4">
         <span
           aria-label={`인용 ${index}`}
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center",
-            "font-mono text-[12px] font-semibold leading-none",
-            "transition-colors duration-200",
-            isSelected
-              ? "bg-yellow text-bg shadow-[0_0_0_1px_rgb(255_230_0/0.6)]"
-              : "bg-surface-3 text-yellow",
+            "bg-surface-3 font-mono text-[12px] font-semibold leading-none text-yellow",
           )}
         >
           {index}
