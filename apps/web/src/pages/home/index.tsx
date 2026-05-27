@@ -6,6 +6,7 @@ import { cn } from "@/shared/lib/utils";
 import { AuroraText } from "@/shared/ui/aurora-text";
 import { DotPattern } from "@/shared/ui/dot-pattern";
 import { TextAnimate } from "@/shared/ui/text-animate";
+import { RagFlow } from "@/widgets/rag-flow";
 
 const HERO_DELAY_MS = 80;
 const SUB_DELAY_MS = 320;
@@ -21,6 +22,7 @@ export function ServiceIntro() {
   return (
     <main className="relative w-full">
       <HeroSection />
+      <RagFlow />
       <Footer />
     </main>
   );
