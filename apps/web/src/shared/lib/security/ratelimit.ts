@@ -13,21 +13,21 @@ type SlidingWindow = `${number} ${"s" | "m" | "h" | "d"}`;
 // 새 한도 추가 시 본 객체만 갱신하면 검사 루프가 자동 포함한다.
 const RATE_LIMITS = {
   perIpMinute: {
-    count: 5,
+    count: 10,
     window: "1 m",
     prefix: "rl:ip:m",
     scope: "ip-min",
     perIp: true,
   },
   perIpDay: {
-    count: 10,
+    count: 30,
     window: "1 d",
     prefix: "rl:ip:d",
     scope: "ip-day",
     perIp: true,
   },
   global: {
-    count: 20,
+    count: 50,
     window: "1 d",
     prefix: "rl:global",
     scope: "global",
