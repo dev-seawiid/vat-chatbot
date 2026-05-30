@@ -5,7 +5,7 @@ import {
 } from "#modules/chat/chat.service";
 import { createGenerationModel } from "#modules/chat/generation.adapter";
 import { createMessageRepository } from "#modules/chat/message.repository";
-import { createRagGraph } from "#modules/chat/rag-graph";
+import { createRagGraph } from "#modules/chat/rag-graph/index";
 import { createChunkRepository } from "#modules/retrieval/chunk.repository";
 import { createEmbeddingModel } from "#modules/retrieval/embedding.adapter";
 import {

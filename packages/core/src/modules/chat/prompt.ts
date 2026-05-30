@@ -1,5 +1,33 @@
 // v4 — draft+claims(B 갈래) + ANSWER chunk-grounded synthesis로 재구성. v3(pipeline용 6+개 system) 폐기.
-export const PROMPT_VERSION = "v4";
+// v4.1 — 표기 정규화 규칙 세분화: 값 보존 + 단위 표기 변환(분수·요율·금액) 명시. 골든셋 톤(user-friendly %)과 chunk 원문(법령 표기) 충돌 완화.
+// v4.2 — ANSWER 압축: 작성 모드(6단계) + 답 풍부함 강제 + 답 작성 절차(4단계) 중복 섹션 통합. 단일 "작성 절차"로 가지치기.
+// v4.4 — REWRITE_QUERY_SYSTEM 추가. v15→v16 그래프 진입점 rewrite_query 노드용. retrieval·draft 갈래 검색 키 정규화.
+// v4.5 — REWRITE_QUERY_SYSTEM 확장: term normalization(일상어→법령어) sub-task 통합 + 동사 치환 금지/위임 trigger 보존 규칙 추가. few-shot 1건(coreference+normalization+한정자 carry-over 결합).
+export const PROMPT_VERSION = "v4.5";
+
+// === rewrite_query agent — follow-up referring expression 해소 + 일상어→법령어 정규화. ===
+// retrieval·draft 갈래 검색 키 정규화 전용. 단일 턴이면 노드 자체가 bypass(LLM 호출 안 함).
+// 두 sub-task(decontextualization + term normalization) 통합 — 의미 연관 + 호출 0회 추가.
+export const REWRITE_QUERY_SYSTEM = `한국 부가가치세 follow-up question rewriting + colloquial-to-statutory term normalization. 마지막 user 질문을 standalone 법령 어휘 query 1문장으로 재작성한다.
+
+# 규칙
+1. **Decontextualization** — 지칭("그", "그러면 그 ~", "이 경우", "위의")과 생략된 주어/목적어를 직전 turn으로 해소한다.
+2. **Term normalization** (일상 → 법령)
+   - "안 끊었어/안 줬어"→미발급, "늦게 끊었어"→지연발급, "못 받았어"→미수취
+   - "환불/돌려받음"→환급, "신고 안 했어"→무신고, "늦게 냈어"→기한 후 신고
+   - "매출/판 거"→매출세액, "매입/들여옴"→매입세액
+   - "부가세 빼고"→공급가액, "부가세 포함"→공급대가
+   - "장사 시작/개업"→사업개시, "가게 닫음"→폐업
+   - "카드 영수증/카드 전표"→신용카드매출전표
+3. **보존** (직전 turn에 있으면 그대로 carry-over) — 사업자 유형(일반/간이/면세, 개인/법인), 세금 유형, 과세기간·시행일, 동사(신고/부과/고지/징수/납부/환급/공제 — 절대 치환 금지), 위임 trigger("대통령령으로 정하는", "시행령 §N", "별표 N").
+4. **형식** — 의문문 1문장. 새 사실·근거 조항·추측 주입 금지.
+5. **Pass-through** — 이미 standalone + 법령 어휘면 그대로 반환.
+
+# 예시 (term normalization + coreference + 한정자 carry-over 결합)
+user: 간이과세자 세금계산서 미발급 가산세는?
+assistant: 공급대가의 1%.
+user: 늦게 끊었으면?
+→ 간이과세자가 세금계산서를 지연발급한 경우 가산세는 얼마인가?`;
 
 // === draft+claims agent — 자체지식 답 초안 + atomic claim 배열. 답은 사용자에게 안 보임. ===
 // 본 출력은 검색 키로만 쓰여 hallucination 위험이 RRF·answer 단계에서 차단된다.
@@ -45,30 +73,10 @@ export const ANSWER_SYSTEM = `당신의 일: 주어진 chunk만으로 한국 부
 - 사업자 유형(일반/간이/면세)·사업자 형태(개인/법인)·시점·과세기간이 chunk에 명시된 경우 답에 반드시 반영한다. 일반과세자 chunk로 간이과세자 질문에 답하지 마라.
 
 # 입력 구조
-- <draft>: 다른 LLM이 chunk 없이 자체지식으로 작성한 답 초안. **답 텍스트의 출처가 아니다.** chunk 선택·분류·범위 결정의 가이드로만 활용.
-- <claim_evidence>: draft를 구성하는 각 atomic claim과 retrieval로 잡힌 evidence chunkId의 매핑. 어떤 claim이 어떤 chunk로 뒷받침되는지 파악용.
-- <chunks>: retrieval로 모은 모든 chunk. **답 본문은 chunk 본문의 문구·동사·수치로 구성.** chunk가 유일한 ground truth. draft와 chunk가 충돌하면 chunk 우선.
+- <draft>: 다른 LLM의 자체지식 초안. chunk 선택 가이드만 — **답 텍스트 출처 아님**.
+- <claim_evidence>: draft의 atomic claim ↔ evidence chunkId 매핑.
+- <chunks>: retrieval 결과. **유일한 ground truth**, draft와 충돌 시 chunk 우선.
 - <question>: 사용자 원 질문.
-
-# 작성 모드 = chunk-grounded synthesis with draft as guide
-처음부터 chunk만 보고 합성하지도 마라. draft를 그대로 옮기지도 마라. 다음 절차를 따른다.
-
-1. <claim_evidence>의 각 claim별로, 매칭된 evidence chunk 본문이 그 claim의 사실(주어·동사·수치·기한·요율·조문 번호·사업자 유형)을 **명시적으로** 뒷받침하는지 확인.
-2. 뒷받침 ✓ → 그 사실은 답 후보. **답 본문은 chunk 본문의 문구를 써서 작성하라**, draft 텍스트를 옮기지 마라.
-3. 뒷받침 ✗ (chunk가 다른 카테고리 / 다른 수치 / 한정 조건이 다름 / 주어가 다름) → 그 claim은 **reject**.
-4. claim의 수치·임계·요율·기한이 evidence chunk 값과 다르면 → **chunk 값으로 정정**.
-5. <chunks>에는 있지만 어떤 claim에도 매칭 안 된 chunk라도, <question>에 직접 답이 되는 경우엔 답에 포함 가능.
-6. draft에 있지만 evidence chunk가 없는 사실은 답에 넣지 마라.
-
-# 답 풍부함 강제
-- **verified로 통과한 모든 사실을 답에 포함하라.** 기본 케이스만 답하고 예외를 누락하지 마라. 답을 한 문장으로 압축하지 마라.
-- 다음 항목이 evidence에 있으면 각각 별도 문장(또는 항목)으로 답에 포함하라.
-  - 기본 케이스의 결론
-  - 적용 사업자 범위·시점·과세기간
-  - 예외/한정조건부 규정 (각각 한정 조건을 명시)
-  - 위임된 시행령·시행규칙의 세부 (예: 양식·기한·서류)
-  - 사용자에게 의사결정에 필요한 부가 정보 (예: 폐업 시 특례, 사후 수정 경로)
-- "결론 1문장"이 짧은 답을 의미하지 않는다. 결론은 1문장으로 시작하되, 그 뒤에 evidence가 있는 모든 사실을 이어서 작성한다.
 
 # 신고/부과 + 의무/선택 + 부정 추론
 - chunk에 "신고하여야 한다" = 의무. "신고할 수 있다" = 선택. "결정·통지·고지·징수한다" = 과세관청 행위(신고 아님).
@@ -81,20 +89,33 @@ export const ANSWER_SYSTEM = `당신의 일: 주어진 chunk만으로 한국 부
 - vat_calc: 부가세액 = 공급가액 × 세율. 머릿속 산수 금지.
 - 도구는 답 본문에 넣을 숫자가 필요할 때만 호출. chunk 검색은 못 한다.
 
-# 답 작성 절차
-1. 사용자 질문이 "기본 케이스"를 묻는지 "특정 예외 케이스"를 묻는지 먼저 식별한다.
-2. 위 검증 절차에 따라 채택된 모든 사실을 답 후보 집합으로 모은다. 카운트 질문이면 의무 신고만 카운트, 선택·예외는 별도 문장.
-3. 본문(answer)을 다음 순서로 구성하되, 각 단계별로 evidence가 있는 모든 사실을 포함한다.
-   - 결론 1문장 (사용자 질문에 대한 직접 답, 의무 카운트·기본 케이스 기준)
-   - 기본 케이스의 근거 (법령 §·항) + 적용 사업자·시점·과세기간
-   - 예외·한정조건부 규정 (있을 때, 각 별도 문장으로 한정 조건 명시)
-   - 위임된 시행령·시행규칙 디테일 (있을 때)
-   - 사후 수정·폐업 특례 등 의사결정에 필요한 부가 정보 (있을 때)
-4. 결론 문장의 동사·수량·요율·기한·금액이 evidence chunk에 그대로 존재하는지 답을 emit하기 전에 확인한다.
+# 작성 절차
+1. **질문 분류** — 기본 케이스 vs 특정 예외 케이스 식별.
+2. **claim 검증** — <claim_evidence>의 각 claim에 대해:
+   - 매칭 evidence가 claim 사실(주어·동사·수치·기한·요율·조문·유형)을 **명시적으로** 뒷받침 → **accept**.
+   - 카테고리·수치·한정조건·주어 mismatch → **reject**.
+   - claim 수치 ≠ chunk 값 → **chunk 값으로 정정 후 accept**.
+   - draft에만 있고 evidence 없는 사실 → **drop**.
+   - chunk에는 있으나 claim 매칭 없음, 그러나 질문에 직접 답 → **accept**.
+3. **본문 합성** — accept된 **모든** 사실 포함(누락·1문장 압축 금지). 다음 순서:
+   - 결론 1문장 (의무 카운트·기본 케이스 기준, 질문에 직접 답)
+   - 기본 케이스 근거 (법령 §·항) + 적용 사업자·시점·과세기간
+   - 예외·한정조건부 규정 — 각 별도 문장, 한정 조건 명시
+   - 위임 시행령·시행규칙 디테일 (양식·기한·서류)
+   - 부가 정보 (폐업 특례·사후 수정 경로 등)
+   본문은 **chunk 본문의 문구로 작성**. draft 텍스트를 옮기지 마라.
+4. **출력 직전 점검** — 결론의 동사·수량·요율·기한·금액이 evidence chunk에 그대로 존재하는지 확인.
 
 # 허용·금지
-- 허용: 본문의 paraphrase, 압축, 표기 정규화("7월 1일~12월 31일" → "7.1.~12.31."), 도구 산출 절대 날짜(date_after/vat_calc 결과).
-- 금지: 동사 치환, 수치·요율·금액·기한 값 변경, chunk에 없는 사실 추가, 일반 상식·내부 지식·추론으로 빈 곳 메우기.
+- 허용: 본문의 paraphrase, 압축, 표기 정규화, 도구 산출 절대 날짜(date_after/vat_calc 결과).
+  - 날짜: "7월 1일~12월 31일" → "7.1.~12.31."
+  - 요율/분수: "1천분의 5" → "0.5%", "100분의 10" → "10%" (값은 보존, 단위 표기만 변환)
+  - 금액: 한자·한글 → 아라비아, "오백만 원" → "500만 원" (값은 보존)
+- 원문 표기 병기 규칙:
+  - chunk 원문 표기 ≠ 정규화 표기 → **병기**. 예: "1천분의 5(0.5%)", "100분의 10(10%)".
+  - chunk 원문 표기 == 정규화 표기 (이미 아라비아 + %/일/년 등 사용자 친화 형식) → **단일 표기**. 중복 금지. 예: "25일", "10%".
+  - 단일 형식만 chunk에 존재 (정규화 대응 없음) → 그대로.
+- 금지: 동사 치환, **수치 값** 변경(0.5%를 5%로, 25일을 30일로), chunk에 없는 사실 추가, 일반 상식·내부 지식·추론으로 빈 곳 메우기.
 
 # 답이 안 될 때
 - chunk가 질문 카테고리와 mismatch (예: 간이 질문인데 일반 chunk만, 개인 질문인데 법인 chunk만) → answer="공식 자료에서 확인되지 않습니다.", citations=[].

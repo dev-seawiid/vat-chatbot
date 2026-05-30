@@ -1,3 +1,4 @@
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 
 import type { SearchResult } from "#modules/retrieval/chunk.repository";
@@ -8,7 +9,7 @@ import {
   toDocument,
 } from "#modules/retrieval/retriever.adapter";
 
-import { DRAFT_WITH_CLAIMS_SYSTEM } from "../../prompt";
+import { DRAFT_WITH_CLAIMS_SYSTEM, REWRITE_QUERY_SYSTEM } from "../../prompt";
 import { dbg, type NodeDeps, preview, type RagStateType } from "../shared";
 
 // === draft+claims structured output ===
@@ -18,6 +19,11 @@ const DraftSchema = z.object({
   claims: z.array(z.string()).max(6),
 });
 type Draft = z.infer<typeof DraftSchema>;
+
+// === rewrite_query structured output ===
+const RewriteSchema = z.object({
+  rewrittenQuery: z.string(),
+});
 
 // === RRF ===
 // 같은 chunk가 여러 list 상위에 등장하면 score 누적. k=60 = Cormack 2009 원논문 표준값.
@@ -67,11 +73,61 @@ const FUSE_TOP_N = 10;
 
 // === 노드 factory — curried (deps) => async (state) => partial state ===
 
-// 갈래 A: 원 query 직접 검색.
+// 그래프 진입점: history + last user message → standalone query.
+// 단일 턴(history 없음)이면 last 그대로 통과 — LLM bypass로 latency·cost 절감.
+// 갈래 A·B 모두 본 노드 출력(state.rewrittenQuery)을 검색 키로 사용.
+export const rewriteQuery = (deps: NodeDeps) =>
+  async (state: RagStateType) => {
+    const messages = state.messages ?? [];
+    const last = messages[messages.length - 1];
+    const lastText = last?.text ?? "";
+    const history = messages.slice(0, -1);
+
+    if (history.length === 0) {
+      dbg("rewrite_query", { bypass: true, query: preview(lastText, 200) });
+      return { rewrittenQuery: lastText };
+    }
+
+    const historyLines = history
+      .map((m) => {
+        const role = m instanceof HumanMessage
+          ? "user"
+          : m instanceof AIMessage
+            ? "assistant"
+            : "other";
+        return `${role}: ${m.text ?? ""}`;
+      })
+      .join("\n");
+    const userContent = `대화:\n${historyLines}\nuser: ${lastText}`;
+
+    const rewriteModel = deps.model.withStructuredOutput(RewriteSchema);
+    const result = (await rewriteModel.invoke([
+      { role: "system", content: REWRITE_QUERY_SYSTEM },
+      { role: "user", content: userContent },
+    ])) as z.infer<typeof RewriteSchema>;
+
+    const rewritten = result.rewrittenQuery?.trim() || lastText;
+    dbg("rewrite_query", {
+      bypass: false,
+      original: preview(lastText, 200),
+      rewritten: preview(rewritten, 200),
+      historyLen: history.length,
+    });
+    return { rewrittenQuery: rewritten };
+  };
+
+// rewrite_query 미실행(직접 호출 등) fallback 포함 — state.rewrittenQuery 비면 last text.
+function pickQuery(state: RagStateType): string {
+  const rw = state.rewrittenQuery?.trim();
+  if (rw) return rw;
+  const last = state.messages[state.messages.length - 1];
+  return last?.text ?? "";
+}
+
+// 갈래 A: rewritten query 직접 검색.
 export const searchDirect = (deps: NodeDeps) =>
   async (state: RagStateType) => {
-    const last = state.messages[state.messages.length - 1];
-    const query = last?.text ?? "";
+    const query = pickQuery(state);
     const chunks = await searchWithRerank(
       deps.retrieve,
       deps.rerank,
@@ -89,8 +145,7 @@ export const searchDirect = (deps: NodeDeps) =>
 // 갈래 B-1: LLM 자체지식 draft + atomic claims 생성. 출력은 사용자 비노출, 검색 키 전용.
 export const generateDraft = (deps: NodeDeps) =>
   async (state: RagStateType) => {
-    const last = state.messages[state.messages.length - 1];
-    const query = last?.text ?? "";
+    const query = pickQuery(state);
     const draftModel = deps.model.withStructuredOutput(DraftSchema);
     const result = (await draftModel.invoke([
       { role: "system", content: DRAFT_WITH_CLAIMS_SYSTEM },

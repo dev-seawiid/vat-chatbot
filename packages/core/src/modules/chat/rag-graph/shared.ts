@@ -11,6 +11,9 @@ import type { GenerationModel } from "../generation.adapter";
 // LangGraph TS는 같은 schema끼리 subgraph wrap 시 channel 자동 read/write.
 export const RagState = Annotation.Root({
   ...MessagesAnnotation.spec,
+  // rewrite_query 출력 — follow-up referring expression 해소된 standalone query.
+  // search_direct·generate_draft 검색 키 입력. 단일 턴이면 last message 그대로 통과.
+  rewrittenQuery: Annotation<string>(),
   directChunks: Annotation<SearchResult[]>(),
   draft: Annotation<string>(),
   claims: Annotation<string[]>(),

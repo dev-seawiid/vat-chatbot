@@ -8,10 +8,10 @@ import { answer } from "./nodes/answer";
 import * as R from "./nodes/retrieval";
 import { type RagGraphDeps, RagState, toNodeDeps } from "./shared";
 
-// 그래프 구조 (v15, ADR-0003 §3): HyDE + Claim Decomposition + RRF.
-//   START ─┬─ search_direct ──────────────────┐
-//          │                                  ├─ fuse(RRF) ─ END   (retrievalSubgraph)
-//          └─ generate_draft → claim_searches ┘
+// 그래프 구조 (v16, ADR-0003 §2·§7): Follow-up Rewrite + HyDE + Claim Decomposition + RRF.
+//   START → rewrite_query ─┬─ search_direct ──────────────────┐
+//                          │                                  ├─ fuse(RRF) ─ END   (retrievalSubgraph)
+//                          └─ generate_draft → claim_searches ┘
 //
 //   START → retrieve(subgraph) → generate_answer → END         (full graph)
 //
@@ -20,16 +20,19 @@ import { type RagGraphDeps, RagState, toNodeDeps } from "./shared";
 export function createRagGraph(deps: RagGraphDeps) {
   const nodeDeps = toNodeDeps(deps);
 
-  // retrieval subgraph — direct + draft+claims + RRF fuse. answer 노드 없음.
+  // retrieval subgraph — rewrite + direct + draft+claims + RRF fuse. answer 노드 없음.
   // 단일 진실 — full graph가 본 subgraph를 단일 node로 wrap, lbr-eval은 본 subgraph 직접 invoke.
   // node·edge 변경은 한 곳에서만, 양쪽 자동 반영(sync drift 차단).
+  // rewrite_query는 history 빈 배열이면 LLM bypass — lbr-eval(단일 query) 환경에서 cost·latency 0.
   const retrievalSubgraph = new StateGraph(RagState)
+    .addNode("rewrite_query", R.rewriteQuery(nodeDeps))
     .addNode("search_direct", R.searchDirect(nodeDeps))
     .addNode("generate_draft", R.generateDraft(nodeDeps))
     .addNode("claim_searches", R.claimSearches(nodeDeps))
     .addNode("fuse", R.fuse())
-    .addEdge(START, "search_direct")
-    .addEdge(START, "generate_draft")
+    .addEdge(START, "rewrite_query")
+    .addEdge("rewrite_query", "search_direct")
+    .addEdge("rewrite_query", "generate_draft")
     .addEdge("generate_draft", "claim_searches")
     .addEdge(["search_direct", "claim_searches"], "fuse")
     .addEdge("fuse", END)
@@ -68,6 +71,7 @@ export function createRagGraph(deps: RagGraphDeps) {
   }> => {
     const partial = await answerNode({
       messages,
+      rewrittenQuery: "",
       directChunks: [],
       draft: "",
       claims: [],
