@@ -16,8 +16,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "query": "tsx scripts/retrieve.ts",
-    "ask": "tsx scripts/ask.ts"
+    "ask": "tsx scripts/ask.ts",
+    "retrieve": "tsx scripts/retrieve.ts",
+    "generate": "tsx scripts/generate.ts"
   },
   "dependencies": {
     "@langchain/classic": "^1.0.34",
@@ -29,7 +30,7 @@
     "drizzle-orm": "^0.36.0",
     "langchain": "^1.4.2",
     "postgres": "^3.4.5",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

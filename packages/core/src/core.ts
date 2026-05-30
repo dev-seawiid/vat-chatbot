@@ -51,14 +51,15 @@ export async function createCore(config: CoreConfig): Promise<Core> {
 
   // 그래프 조립은 composition root 책임 — chat.service는 invoke만.
   // VoyageRerankCompressor가 embedding과 동일 키(VOYAGE_API_KEY)로 rerank-2.5 호출.
-  const graph = createRagGraph({
+  // createRagGraph는 full graph + retrieval-only path 둘 다 반환(lbr-eval용).
+  const rag = createRagGraph({
     generationModel,
     retrieve: retrieval.retrieve,
     voyageApiKey: config.embeddingApiKey,
   });
 
   const chat = createChatService({
-    graph,
+    rag,
     messageRepo,
     modelId: generationModel.modelId,
   });

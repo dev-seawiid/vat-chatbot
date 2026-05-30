@@ -31,7 +31,7 @@ const DEFAULT_TOP_K = 8;
 
 /**
  * spec §3.2 retrieval — 질문 텍스트를 query 모드로 임베딩 후 chunk repository.search 합성.
- * CLI(scripts/retrieve.ts)에서 직접 호출하므로 service로 단독 노출(chat service 내부가 아님).
+ * chat service에서 rag-graph 의존성으로 주입. eval은 chat.retrieve(fused) 경유.
  */
 export function createRetrievalService(deps: {
   embed: EmbedFn;

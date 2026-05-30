@@ -81,9 +81,11 @@ fetch 단계는 폐기 (law.go.kr가 안정 PDF URL을 노출하지 않음 — `
 ## CLI
 
 ```bash
-pnpm core:ask "수출 매출의 영세율 적용 요건은?"     # 단발 검증
-pnpm core:query "..."                                # retrieval 단독
-pnpm ragas-eval:eval                                 # 골든셋 채점 + Langfuse push
+pnpm core:ask "수출 매출의 영세율 적용 요건은?"     # full RAG (retrieval + generation)
+pnpm core:retrieve "..." --json                      # retrieval pipeline만 (lbr-eval 호출)
+pnpm core:generate "..." --chunks=<path>             # 외부 chunks 주입 generation
+pnpm ragas-eval:eval                                 # generation 채점 + Langfuse push
+pnpm lbr-eval:eval                                   # LegalBench-RAG retrieval 채점
 pnpm db:studio                                       # Drizzle Studio
 ```
 

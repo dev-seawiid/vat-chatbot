@@ -2,7 +2,7 @@
 
 질문 텍스트 → 관련 chunk top-k. 위치: `packages/core/src/modules/retrieval/`.
 
-`RetrievalService.retrieve`는 **단발 dense vector 검색** 표면 — embed + pgvector top-k 합성. RAG 체인의 grade·rerank·multi-query 분기는 본 service 밖(LangGraph rag-graph)에서 합성. 따라서 CLI(`scripts/retrieve.ts`)와 evaluation plane이 직접 호출할 수 있는 검색 primitive로 동작.
+`RetrievalService.retrieve`는 **단발 dense vector 검색** 표면 — embed + pgvector top-k 합성. RAG 체인의 grade·rerank·multi-query 분기는 본 service 밖(LangGraph rag-graph)에서 합성. evaluation plane이 직접 호출할 수 있는 검색 primitive로 동작.
 
 ## 1. 흐름
 
@@ -87,9 +87,9 @@ type RetrievalService = {
 ```
 
 호출자:
-- **CLI** `scripts/retrieve.ts` — 단발 검색 (디버깅용)
 - **RAG graph** `modules/chat/rag-graph.ts::searchWithRerank` — `retrieve(k=50)` + `VoyageRerankCompressor.compressDocuments` + slice 합성. `search_direct`(k=8)·`claim_searches`(k=4) 두 노드에서 호출
 - **evaluation plane** `jobs/ragas-eval` — RAGAS 입력의 `retrieved_contexts`
+- **lbr-eval(LegalBench-RAG)** `jobs/lbr-eval` — `chat.retrieve`(fused) 통해 production pipeline 결과 측정. raw `RetrievalService.retrieve` 직접 호출 X
 
 ## 5. 파라미터 결정
 

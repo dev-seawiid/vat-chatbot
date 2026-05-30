@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, type BaseMessage, HumanMessage } from "@langchain/core/messages";
 
 import type { Citation } from "#common/citation";
 import type { SearchResult } from "#modules/retrieval/chunk.repository";
@@ -31,6 +31,11 @@ export type AskResult = {
 };
 
 export type AskFn = (query: string, opts?: AskOptions) => Promise<AskResult>;
+export type RetrieveFn = (query: string) => Promise<{ chunks: SearchResult[] }>;
+export type GenerateFn = (
+  query: string,
+  chunks: SearchResult[],
+) => Promise<AskResult>;
 
 export type ChatService = ReturnType<typeof createChatService>;
 
@@ -67,20 +72,54 @@ function makeQueue<T>() {
 // window cap이 메시지 수 기준 — 6 = user+assistant 짝 3 round-trip.
 const HISTORY_WINDOW = 6;
 
+// AskResult를 한 곳에서 만들어 ask/answer 두 메서드가 공유 — 직렬화 로직 중복 차단.
+function toAskResult(args: {
+  answer: string;
+  citations: Citation[];
+  chunks: SearchResult[];
+  modelId: string;
+}): AskResult {
+  const { answer, citations, chunks, modelId } = args;
+  const textQueue = makeQueue<string>();
+  const citationQueue = makeQueue<Citation>();
+  textQueue.push(answer);
+  textQueue.end();
+  for (const c of citations) citationQueue.push(c);
+  citationQueue.end();
+
+  return {
+    textStream: textQueue.iterable(),
+    citationStream: citationQueue.iterable(),
+    chunks,
+    // usage 토큰 카운트는 LangChain ChatOpenAI usage_metadata 노출 경로가 별도 — 후속 슬라이스에서 callback으로.
+    finish: Promise.resolve({
+      text: answer,
+      citations,
+      inputTokens: undefined,
+      outputTokens: undefined,
+      finishReason: "stop",
+      model: modelId,
+    }),
+  };
+}
+
 export function createChatService(deps: {
-  graph: RagGraph;
+  rag: RagGraph;
   messageRepo: MessageRepository;
   // persist용 라벨 — finish.model로 박제, retrievedChunkIds와 join 키 역할.
   modelId: string;
 }) {
-  const { graph, messageRepo, modelId } = deps;
+  const { rag, messageRepo, modelId } = deps;
 
-  const ask: AskFn = async (query, opts = {}) => {
-    const history = opts.conversationId
-      ? await messageRepo.recentTurns(opts.conversationId, HISTORY_WINDOW)
+  // history fetch → messages 빌드. ask/answer 공유 (retrieve는 history 무관 — query만).
+  async function buildMessages(
+    query: string,
+    conversationId: string | undefined,
+  ): Promise<BaseMessage[]> {
+    const history = conversationId
+      ? await messageRepo.recentTurns(conversationId, HISTORY_WINDOW)
       : [];
-
-    const messages = [
+    return [
       ...history.map((m) =>
         m.role === "user"
           ? new HumanMessage(m.content)
@@ -88,42 +127,42 @@ export function createChatService(deps: {
       ),
       new HumanMessage(query),
     ];
+  }
 
-    // multi-agent 그래프 — search(ReAct loop, tool 호출) → answer(structured output, tool 없음).
-    // search는 recall 우선(예외·조건부 chunk 포함), answer는 precision 우선(예외 분리·verbatim).
-    // search 내부 tool 호출은 createReactAgent 자체 step 제한. 외부 recursionLimit은 그래프 노드 단위.
-    const final = await graph.invoke({ messages }, { recursionLimit: 10 });
+  // full pipeline — multi-agent 그래프(search ReAct loop → answer structured output).
+  const ask: AskFn = async (query, opts = {}) => {
+    const messages = await buildMessages(query, opts.conversationId);
+    const final = await rag.graph.invoke({ messages }, { recursionLimit: 10 });
+    return toAskResult({
+      answer: final.answer ?? "",
+      citations: final.citations ?? [],
+      chunks: final.toolChunks ?? [],
+      modelId,
+    });
+  };
 
-    const chunks: SearchResult[] = final.toolChunks ?? [];
-    const citations = final.citations ?? [];
-    const answer = final.answer ?? "";
+  // retrieval-only — lbr-eval(LegalBench-RAG)용. generate_answer 노드 우회.
+  // generation LLM은 draft 1회만 호출(HyDE+claims). history 무관 — 단일 query만.
+  const retrieve: RetrieveFn = async (query) => {
+    return rag.retrievalOnly([new HumanMessage(query)]);
+  };
 
-    // 인터페이스 호환을 위해 stream wrapper로 1회 emit. UI는 text-delta 한 번 + citation N건 burst로 받음.
-    const textQueue = makeQueue<string>();
-    const citationQueue = makeQueue<Citation>();
-    textQueue.push(answer);
-    textQueue.end();
-    for (const c of citations) citationQueue.push(c);
-    citationQueue.end();
-
-    return {
-      textStream: textQueue.iterable(),
-      citationStream: citationQueue.iterable(),
-      chunks,
-      // usage 토큰 카운트는 LangChain ChatOpenAI usage_metadata 노출 경로가 별도 — 후속 슬라이스에서 callback으로.
-      finish: Promise.resolve({
-        text: answer,
-        citations,
-        inputTokens: undefined,
-        outputTokens: undefined,
-        finishReason: "stop",
-        model: modelId,
-      }),
-    };
+  // generation-only — 외부 주입 chunks로 answer만. eval factorial design·디버깅·재현 테스트용.
+  // history 무관 — 단일 query + chunks.
+  const generate: GenerateFn = async (query, chunks) => {
+    const result = await rag.generateOnly([new HumanMessage(query)], chunks);
+    return toAskResult({
+      answer: result.answer,
+      citations: result.citations,
+      chunks: result.chunks,
+      modelId,
+    });
   };
 
   return {
     ask,
+    retrieve,
+    generate,
     async recordChatTurn(args: SavePairArgs): Promise<void> {
       await messageRepo.savePair(args);
     },

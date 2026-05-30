@@ -1,35 +1,28 @@
 import "dotenv/config";
 
 import { createCore, parseEnv } from "../src";
+import { buildPayload, emitJson } from "./lib/output";
 
-// 검증 CLI — apps/web 진입 전에 retrieval 결과를 눈으로 확인하는 thin entrypoint.
+// retrieval-only — production retrieval pipeline(HyDE+claims+RRF) 실행, generate_answer 우회.
+// lbr-eval(LegalBench-RAG)이 LLM 호출 없이 retrieval만 측정하기 위함.
+//
 // 사용:
-//   pnpm core:query "간이과세자 신고는 어떻게 해야 하나요?"
-//   pnpm core:query "..." --tax_type=vat-simplified --k=5
+//   pnpm core:retrieve "..." --json   # stdout 마지막 줄에 JSON (chunks·answer="")
 
-type Args = { query: string; taxType?: string; k: number };
+type Args = { query: string; json: boolean };
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
-  let taxType: string | undefined;
-  let k = 8;
+  let json = false;
   for (const a of argv) {
-    if (a.startsWith("--tax_type=")) taxType = a.slice("--tax_type=".length);
-    else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
+    if (a === "--json") json = true;
     else positional.push(a);
   }
   if (positional.length === 0) {
-    console.error(
-      'Usage: pnpm core:query "<question>" [--tax_type=<value>] [--k=<n>]',
-    );
+    console.error('Usage: pnpm core:retrieve "<question>" [--json]');
     process.exit(1);
   }
-  return { query: positional.join(" "), taxType, k };
-}
-
-function preview(text: string, max = 200): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? flat.slice(0, max) + "…" : flat;
+  return { query: positional.join(" "), json };
 }
 
 async function main(): Promise<void> {
@@ -42,26 +35,24 @@ async function main(): Promise<void> {
   });
 
   try {
-    const { query, taxType, k } = parseArgs(process.argv.slice(2));
-    const filter = taxType ? { taxType } : undefined;
+    const { query, json } = parseArgs(process.argv.slice(2));
+    const log = json ? console.error : console.log;
 
-    console.log(`\nQuery   : ${query}`);
-    console.log(`k       : ${k}`);
-    console.log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+    log(`\nQuery   : ${query}`);
+    log(`mode    : retrieval-only\n`);
 
-    const results = await core.retrieval.retrieve(query, { k, filter });
-    if (results.length === 0) {
-      console.log("(no results)");
+    const { chunks } = await core.chat.retrieve(query);
+    log(`retrieved ${chunks.length} chunks`);
+
+    if (json) {
+      emitJson(buildPayload({ answer: "", chunks, citations: [] }));
       return;
     }
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      console.log(
-        `[${i + 1}] sim=${r.similarity.toFixed(3)}  ver=${r.docVersion ?? "-"}  page=${r.page ?? "-"}`,
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      log(
+        `[${i + 1}] ${c.docTitle}${c.page != null ? ` · p.${c.page}` : ""} (${c.chunkId.slice(0, 8)})`,
       );
-      console.log(`    ${r.docTitle}`);
-      console.log(`    ${r.sectionPath ?? "-"}`);
-      console.log(`    ${preview(r.content)}\n`);
     }
   } finally {
     await core.close();

@@ -60,3 +60,15 @@ reference 근거에서 사용자 친화 톤으로 1~3문장 재작성. RAGAS met
 
 - **영세율 reference 부족**: 상담센터 영세율 사례가 robots 제약으로 미수집. 영세율 5문항은 기존 매뉴얼·사례집 표/사례에 의존 — 양질 hard 난이도 작성이 기존 대비 어려움.
 - **예정신고 reference 편중**: 신규 5문항이 단일 페이지(mi=1329) 기반 → answer가 reference 톤·표현에 과적합 가능. RAGAS faithfulness/precision은 영향 적으나 answer_relevancy는 다음 run에서 모니터.
+
+## 8. lbr-eval — LegalBench-RAG 추가, ragas-eval과 보완 관계
+
+- **문제점**: ragas-eval은 generation 평가 위주(faithfulness/answer_correctness 등 LLM judge). retrieval 단독 시그널이 약함 — retrieval 회귀가 generation 점수 안에 섞여 분리 불가.
+- **추가**: `jobs/lbr-eval` (LegalBench-RAG, Pipitone 2024 arxiv 2408.10343) — retrieval-only 결정적 메트릭.
+  - 메트릭: `Precision@k`, `Recall@k` on 조문 ID set (원본 snippet 단위는 우리 조 단위 chunking에 맞춰 조문 단위로 변형).
+  - LLM judge 0회. core `chat.retrieve()` (또는 CLI `--retrieval-only`)로 answer 노드 우회 → generation LLM은 draft 1회만(HyDE+claims 필수).
+- **보완 관계**: ragas-eval(generation, LLM judge) + lbr-eval(retrieval, deterministic) — 같은 골든셋 단일 소스 공유.
+  - lbr-eval은 `must_include_articles` 컬럼만 사용. 나머지 컬럼은 ragas-eval 영역.
+- **운영**: lbr-eval은 결정적·빠름 → 매 PR 회귀 게이트. ragas-eval은 LLM judge 비용 있음 → 릴리스 게이트.
+- **메트릭 해석**: `Recall@k`가 주 시그널 — 누락된 정답은 LLM이 복구 불가. `P@k`는 비용·k튜닝 보조 (R@k 동등할 때 토큰 절약 여지). 논문(LBR §4.2)은 두 메트릭 동등 가중이나, 누락 위험 우선. `must_include`도 sparse label이라 P@k 절대값은 한 자릿수 % 수준이 정상(논문 §5.1 결과와 일치).
+- **ChatService 메서드 분리**: `ask`(full), `retrieve`(retrieval-only), `answer`(generation-only with injected chunks) — boolean flag 누적 회피, discriminated mode (Toss coupling §3 / predictability §1). CLI도 `--retrieval-only` / `--generation-only --chunks=<path>` 두 flag로 대응.

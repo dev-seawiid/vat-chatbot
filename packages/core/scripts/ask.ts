@@ -1,11 +1,12 @@
 import "dotenv/config";
 
 import { createCore, parseEnv } from "../src";
+import { buildPayload, emitJson, logCitations } from "./lib/output";
 
 // 사용:
 //   pnpm core:ask "간이과세자 신고는 어떻게 해야 하나요?"
 //   pnpm core:ask "..." --tax_type=vat-simplified --k=6
-//   pnpm core:ask "..." --json   # stdout 마지막 줄에 {"answer","contexts"} 한 줄 (ragas-eval 브릿지)
+//   pnpm core:ask "..." --json   # stdout 마지막 줄에 JSON (ragas-eval 브릿지)
 
 type Args = {
   query: string;
@@ -47,12 +48,13 @@ async function main(): Promise<void> {
     const { query, taxType, k, json } = parseArgs(process.argv.slice(2));
     const filter = taxType ? { taxType } : undefined;
 
-    // --json 모드: 인간용 출력은 전부 stderr로, stdout은 마지막 한 줄 JSON만.
+    // --json 모드: 인간용 출력은 stderr, stdout 마지막 한 줄 JSON만.
     const log = json ? console.error : console.log;
 
     log(`\nQuery   : ${query}`);
     log(`k       : ${k}`);
-    log(`filter  : ${JSON.stringify(filter ?? null)}\n`);
+    log(`filter  : ${JSON.stringify(filter ?? null)}`);
+    log(`mode    : full\n`);
 
     const { textStream, citationStream, chunks, finish } = await core.chat.ask(
       query,
@@ -82,24 +84,12 @@ async function main(): Promise<void> {
     log(
       `tokens : in=${meta.inputTokens ?? "?"} out=${meta.outputTokens ?? "?"}  finish=${meta.finishReason}  model=${meta.model}\n`,
     );
-
-    log("--- citations (verified) ---");
-    for (let i = 0; i < meta.citations.length; i++) {
-      const c = meta.citations[i];
-      log(
-        `[${i + 1}] ${c.docTitle}${c.docVersion ? ` · ${c.docVersion}` : ""}${
-          c.page != null ? ` · p.${c.page}` : ""
-        }`,
-      );
-      if (c.sectionPath) log(`    ${c.sectionPath}`);
-    }
+    logCitations(log, meta.citations);
 
     if (json) {
-      const payload = {
-        answer: meta.text,
-        contexts: chunks.map((c) => c.content),
-      };
-      process.stdout.write(JSON.stringify(payload) + "\n");
+      emitJson(
+        buildPayload({ answer: meta.text, chunks, citations: meta.citations }),
+      );
     }
   } finally {
     await core.close();

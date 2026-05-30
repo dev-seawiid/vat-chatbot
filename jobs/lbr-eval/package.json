@@ -1,0 +1,9 @@
+{
+  "name": "@vat/lbr-eval",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "sync": "uv sync",
+    "eval": "uv run python scripts/run_eval.py"
+  }
+}
