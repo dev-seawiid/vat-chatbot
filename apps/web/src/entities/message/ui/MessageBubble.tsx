@@ -1,6 +1,7 @@
 "use client";
 
 import type { Citation } from "../types";
+import { joinCitationLabels } from "../lib/citation-label";
 
 import { cn } from "@/shared/lib/utils";
 
@@ -81,7 +82,7 @@ export function MessageBubble({
             참고 · REFS
           </span>
           <CitationChip
-            label={visibleCitations.map((_, idx) => idx + 1).join(",")}
+            label={joinCitationLabels(visibleCitations)}
             onClick={() => onCiteClick?.()}
           />
         </footer>

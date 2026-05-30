@@ -1,6 +1,7 @@
 "use client";
 
 import type { Citation } from "@/entities/message";
+import { formatDocVersion } from "@/entities/message";
 
 import { cn } from "@/shared/lib/utils";
 
@@ -13,13 +14,15 @@ type CitationCardProps = {
 };
 
 export function CitationCard({ citation, index }: CitationCardProps) {
-  const meta = [
-    citation.docVersion,
-    citation.page != null ? `p.${citation.page}` : null,
-    citation.sectionPath,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const title = citation.sectionPath
+    ? citation.sectionPath.replace(/ > /g, " › ")
+    : citation.docTitle;
+  const effective = formatDocVersion(citation.docVersion);
+  const metaParts = [
+    citation.sectionPath ? citation.docTitle : null,
+    effective,
+  ].filter(Boolean);
+  const meta = metaParts.length > 0 ? metaParts.join(" · ") : null;
 
   return (
     <li
@@ -41,10 +44,10 @@ export function CitationCard({ citation, index }: CitationCardProps) {
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-display text-[17px] leading-[1.3] tracking-[-0.005em] text-fg">
-            {citation.docTitle}
+            {title}
           </h3>
           {meta && (
-            <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-muted">
+            <p className="mt-1.5 text-[12px] leading-[1.4] text-fg-muted">
               {meta}
             </p>
           )}
