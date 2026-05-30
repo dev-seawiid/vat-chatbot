@@ -41,13 +41,10 @@ from typing import IO
 
 from langfuse import Langfuse
 from ragas.metrics.collections import (
-    AnswerRelevancy,
-    ContextPrecisionWithReference,
     FactualCorrectness,
     Faithfulness,
 )
 
-from ragas_eval.embeddings import make_embeddings
 from ragas_eval.llm import make_llm
 from ragas_eval.rag import rag_run
 
@@ -91,11 +88,9 @@ def load_rows(path: Path) -> list[dict]:
 
 # ---------- metrics ----------
 
-def build_metrics(llm, embeddings) -> list:
+def build_metrics(llm) -> list:
     return [
         Faithfulness(llm=llm),
-        AnswerRelevancy(llm=llm, embeddings=embeddings),
-        ContextPrecisionWithReference(llm=llm),
         FactualCorrectness(llm=llm, mode="f1"),
     ]
 
@@ -272,7 +267,7 @@ def phase2_push(langfuse: Langfuse, dataset, metrics: list, output: Path) -> Non
 def main() -> None:
     langfuse = Langfuse()
     dataset = langfuse.get_dataset(DATASET_NAME)
-    metrics = build_metrics(make_llm(), make_embeddings())
+    metrics = build_metrics(make_llm())
     asyncio.run(phase1_collect(dataset, metrics, OUTPUT_PATH))
     phase2_push(langfuse, dataset, metrics, OUTPUT_PATH)
 

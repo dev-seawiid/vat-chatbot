@@ -4,27 +4,27 @@ ADR-0001 source migration에 맞춰 reference 풀을 확장하고 30문항을 �
 
 ## 1. Reference 출처
 
-| | Before | After |
-|---|---|---|
-| PDF (매뉴얼/사례집) | 3건 | 동일 3건 |
-| 상담센터 Q&A (`nts_counseling_qna.jsonl`) | — | 27건 (예정신고/예정고지 한정) |
-| 본사이트 게시판 메타 (`nts_homepage.jsonl`) | — | 10건 (부가세 참고자료실, 사례·매뉴얼 PDF 링크) |
-| 답변 톤 | 매뉴얼체만 | + 실제 사용자 질문체(상담센터) |
+|                                             | Before     | After                                          |
+| ------------------------------------------- | ---------- | ---------------------------------------------- |
+| PDF (매뉴얼/사례집)                         | 3건        | 동일 3건                                       |
+| 상담센터 Q&A (`nts_counseling_qna.jsonl`)   | —          | 27건 (예정신고/예정고지 한정)                  |
+| 본사이트 게시판 메타 (`nts_homepage.jsonl`) | —          | 10건 (부가세 참고자료실, 사례·매뉴얼 PDF 링크) |
+| 답변 톤                                     | 매뉴얼체만 | + 실제 사용자 질문체(상담센터)                 |
 
 상담센터 사례 22,001건은 robots.txt `Disallow: /`로 자동 수집 비범위. mi=1329 단일 페이지(예정신고/예정고지)만 1회 fetch.
 
 ## 2. 30문항 카테고리 분포
 
-| 카테고리 | Before | After | 주 reference | 변경 사유 |
-|---|---|---|---|---|
-| 기초 신고/마감 | 6 | 5 | 매뉴얼 | 예정신고 신설 분 균등 차감 |
-| 영세율/면세 | 6 | 5 | 매뉴얼·사례집 표 | discrimination 보존 위해 거의 유지 (ADR-0001 §3 worst 영역) |
-| 매입세액 공제 | 6 | 5 | 매뉴얼 | 균등 차감 |
-| 의제매입 | 4 | 3 | 매뉴얼 | 균등 차감 |
-| 간이과세 | 4 | 4 | 사례집(간이) | 유지 (worst 영역) |
-| 가산세 | 4 | 3 | 매뉴얼 | 균등 차감 |
-| 예정신고/예정고지 (신규) | 0 | 5 | counseling_qna | 신규 reference 충분, 신설 |
-| **합계** | **30** | **30** | | |
+| 카테고리                 | Before | After  | 주 reference     | 변경 사유                                                   |
+| ------------------------ | ------ | ------ | ---------------- | ----------------------------------------------------------- |
+| 기초 신고/마감           | 6      | 5      | 매뉴얼           | 예정신고 신설 분 균등 차감                                  |
+| 영세율/면세              | 6      | 5      | 매뉴얼·사례집 표 | discrimination 보존 위해 거의 유지 (ADR-0001 §3 worst 영역) |
+| 매입세액 공제            | 6      | 5      | 매뉴얼           | 균등 차감                                                   |
+| 의제매입                 | 4      | 3      | 매뉴얼           | 균등 차감                                                   |
+| 간이과세                 | 4      | 4      | 사례집(간이)     | 유지 (worst 영역)                                           |
+| 가산세                   | 4      | 3      | 매뉴얼           | 균등 차감                                                   |
+| 예정신고/예정고지 (신규) | 0      | 5      | counseling_qna   | 신규 reference 충분, 신설                                   |
+| **합계**                 | **30** | **30** |                  |                                                             |
 
 각 카테고리 안에서 난이도 E/M/H 균형은 기존 디자인(2026-05-07) 비율을 따른다.
 
@@ -72,3 +72,26 @@ reference 근거에서 사용자 친화 톤으로 1~3문장 재작성. RAGAS met
 - **운영**: lbr-eval은 결정적·빠름 → 매 PR 회귀 게이트. ragas-eval은 LLM judge 비용 있음 → 릴리스 게이트.
 - **메트릭 해석**: `Recall@k`가 주 시그널 — 누락된 정답은 LLM이 복구 불가. `P@k`는 비용·k튜닝 보조 (R@k 동등할 때 토큰 절약 여지). 논문(LBR §4.2)은 두 메트릭 동등 가중이나, 누락 위험 우선. `must_include`도 sparse label이라 P@k 절대값은 한 자릿수 % 수준이 정상(논문 §5.1 결과와 일치).
 - **ChatService 메서드 분리**: `ask`(full), `retrieve`(retrieval-only), `answer`(generation-only with injected chunks) — boolean flag 누적 회피, discriminated mode (Toss coupling §3 / predictability §1). CLI도 `--retrieval-only` / `--generation-only --chunks=<path>` 두 flag로 대응.
+
+## 9. ragas metric 축소 — 2종 + smoke test 강등
+
+- **제거**: `ContextPrecisionWithReference`(§8 lbr-eval `P@k`와 retrieval 시그널 중복), `AnswerRelevancy`(verbose 보상 → 1~3문장 골든셋과 충돌, legal RAG 벤치마크 어디서도 미채택).
+- **Before → After**: 4종 → 2종 (`Faithfulness` + `FactualCorrectness(mode="f1")`, 옵션 기본값). retrieval = lbr-eval, generation = ragas.
+- **역할 강등**: legal/세법 RAG에서 두 metric 사용 사례 0건(KoBLEX·LRAGE·Isaacus·Trautmann·Magesh·Austrian VAT). 아래 cover 매핑 기준 dominant 실패를 구조적으로 못 잡음 → primary quality gate 아닌 **catastrophic regression smoke test**.
+
+  | 검증 axis                                       | Faithfulness |  FactualCorrectness   |
+  | ----------------------------------------------- | :----------: | :-------------------: |
+  | 외부지식 hallucination (context 없는 사실)      |      ✅      |           △           |
+  | 자체 오답 (답 ≠ reference)                      |      ❌      |          ✅           |
+  | 완전성 (예외·한정 누락)                         |      ❌      |          ✅           |
+  | retrieval 회귀 (context-답 단절)                |      ✅      |          ❌           |
+  | 빈 응답 / 거대 회귀                             |      ✅      |          ✅           |
+  | **misgrounded** (옳은 조문, 틀린 항·호)         |      ❌      |          ❌           |
+  | **부정·단서** ("~할 수 있다" vs "~하여야 한다") |      ❌      |          ❌           |
+  | **refusal correctness**                         |      △       |          ❌           |
+  | **수치 precision** (1천분의 5 ↔ 5% swap)        |      △       |           △           |
+  | citation `quote` 정합                           |      ❌      | ❌ (별도 code verify) |
+  | format/tone                                     |      ❌      |  ❌ (metric 영역 외)  |
+
+- **수치·조문 hallucination 보강**: deterministic NumericEM/CitationEM은 답변 자유 표기와 충돌. metric 대신 **system prompt에서 "수치·조문은 chunk 원문 인용" 제약**으로 처리.
+- **Follow-up**: primary quality gate는 KoBLEX **LF-Eval**(`Context Fidelity`) 스타일 자체 rubric judge 도입.
