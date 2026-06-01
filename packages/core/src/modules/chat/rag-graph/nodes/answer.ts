@@ -16,7 +16,7 @@ import {
   toCitation,
   toCitationUnmatched,
 } from "#common/citation";
-import type { SearchResult } from "#modules/retrieval/chunk.repository";
+import type { SearchResult } from "#modules/retrieval/index";
 
 import { ANSWER_SYSTEM } from "../../prompt";
 import { createAnswerTools } from "../../tools";

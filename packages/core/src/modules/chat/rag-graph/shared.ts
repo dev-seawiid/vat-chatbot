@@ -1,9 +1,11 @@
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
 
 import type { Citation } from "#common/citation";
-import type { SearchResult } from "#modules/retrieval/chunk.repository";
-import { VoyageRerankCompressor } from "#modules/retrieval/rerank.adapter";
-import type { RetrieveFn } from "#modules/retrieval/retrieval.service";
+import {
+  type RetrieveFn,
+  type SearchResult,
+  VoyageRerankCompressor,
+} from "#modules/retrieval/index";
 
 import type { GenerationModel } from "../generation.adapter";
 

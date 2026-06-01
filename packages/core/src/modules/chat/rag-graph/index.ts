@@ -2,7 +2,7 @@ import { type BaseMessage } from "@langchain/core/messages";
 import { END, START, StateGraph } from "@langchain/langgraph";
 
 import type { Citation } from "#common/citation";
-import type { SearchResult } from "#modules/retrieval/chunk.repository";
+import type { SearchResult } from "#modules/retrieval/index";
 
 import { answer } from "./nodes/answer";
 import * as R from "./nodes/retrieval";

@@ -1,13 +1,13 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 
-import type { SearchResult } from "#modules/retrieval/chunk.repository";
-import { VoyageRerankCompressor } from "#modules/retrieval/rerank.adapter";
-import type { RetrieveFn } from "#modules/retrieval/retrieval.service";
 import {
   type PgvectorDocMetadata,
+  type RetrieveFn,
+  type SearchResult,
   toDocument,
-} from "#modules/retrieval/retriever.adapter";
+  VoyageRerankCompressor,
+} from "#modules/retrieval/index";
 
 import { DRAFT_WITH_CLAIMS_SYSTEM, REWRITE_QUERY_SYSTEM } from "../../prompt";
 import { dbg, type NodeDeps, preview, type RagStateType } from "../shared";

@@ -6,12 +6,12 @@ import {
 import { createGenerationModel } from "#modules/chat/generation.adapter";
 import { createMessageRepository } from "#modules/chat/message.repository";
 import { createRagGraph } from "#modules/chat/rag-graph/index";
-import { createChunkRepository } from "#modules/retrieval/chunk.repository";
-import { createEmbeddingModel } from "#modules/retrieval/embedding.adapter";
 import {
+  createChunkRepository,
+  createEmbeddingModel,
   createRetrievalService,
   type RetrievalService,
-} from "#modules/retrieval/retrieval.service";
+} from "#modules/retrieval/index";
 
 // composition root — chat·retrieval 두 도메인의 외부 의존을 묶는다. evaluation은 jobs/ragas-eval
 // consumer plane이 owns — core는 ask·retrieve library만 제공.

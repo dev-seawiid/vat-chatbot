@@ -1,8 +1,7 @@
 import { AIMessage, type BaseMessage, HumanMessage } from "@langchain/core/messages";
 
 import type { Citation } from "#common/citation";
-import type { SearchResult } from "#modules/retrieval/chunk.repository";
-import type { RetrieveOptions } from "#modules/retrieval/retrieval.service";
+import type { RetrieveOptions, SearchResult } from "#modules/retrieval/index";
 
 import type { MessageRepository, SavePairArgs } from "./message.repository";
 import type { RagGraph } from "./rag-graph";
@@ -129,7 +128,7 @@ export function createChatService(deps: {
     ];
   }
 
-  // full pipeline — multi-agent 그래프(search ReAct loop → answer structured output).
+  // full pipeline — RAG 그래프(rewrite_query → 결정적 search 노드 + RRF fuse → answer structured output).
   const ask: AskFn = async (query, opts = {}) => {
     const messages = await buildMessages(query, opts.conversationId);
     const final = await rag.graph.invoke({ messages }, { recursionLimit: 10 });
