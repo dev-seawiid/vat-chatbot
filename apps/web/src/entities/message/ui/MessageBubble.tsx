@@ -1,5 +1,7 @@
 "use client";
 
+import { Streamdown } from "streamdown";
+
 import type { Citation } from "../types";
 import { joinCitationLabels } from "../lib/citation-label";
 
@@ -64,15 +66,24 @@ export function MessageBubble({
         )}
       </header>
 
-      <div
-        className={cn(
-          "whitespace-pre-wrap font-sans text-[14.5px] leading-[1.7]",
-          showStatus ? "text-fg-soft" : "text-fg",
-          isStreaming && !isUser && "text-shimmer",
+      <div className="font-sans text-[14.5px] leading-[1.7]">
+        {showStatus ? (
+          // 진행 단계 — 스트리밍 중 shimmer. answer 노드와 다른 key라 교체 시 remount.
+          <span key="status" className="text-shimmer text-fg-soft">
+            {statusLabel}
+          </span>
+        ) : isAssistant ? (
+          // AI 답변 — markdown 렌더(Streamdown). mount 시 blur-in 페이드.
+          <div key="answer" className="vat-markdown blur-in text-fg">
+            <Streamdown>{text}</Streamdown>
+          </div>
+        ) : (
+          // 사용자 메시지 — plain, 줄바꿈 보존.
+          <span key="answer" className="block whitespace-pre-wrap text-fg">
+            {text}
+          </span>
         )}
-      >
-        {showStatus ? statusLabel : text}
-        {isStreaming && !isUser && (
+        {showStatus && (
           <span
             aria-hidden
             className="ml-[2px] inline-block h-[1em] w-[8px] -translate-y-[1px] animate-caret-blink bg-yellow align-middle"

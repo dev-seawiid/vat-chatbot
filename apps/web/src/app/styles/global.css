@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Streamdown(답변 markdown 렌더)이 쓰는 유틸 클래스를 Tailwind가 생성하도록 소스 등록. */
+@source "../../../node_modules/streamdown/dist/index.js";
+
 /* Pretendard Variable은 layout.tsx에서 npm 패키지(pretendard)로 로드. */
 
 @custom-variant dark (&:is(.dark *));
