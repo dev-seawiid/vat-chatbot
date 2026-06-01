@@ -3,7 +3,7 @@ import {
   type ChatService,
   createChatService,
 } from "#modules/chat/chat.service";
-import { createGenerationModel } from "#modules/chat/generation.adapter";
+import { createModelRegistry } from "#modules/chat/llm.adapter";
 import { createMessageRepository } from "#modules/chat/message.repository";
 import { createRagGraph } from "#modules/chat/rag-graph/index";
 import {
@@ -45,15 +45,15 @@ export async function createCore(config: CoreConfig): Promise<Core> {
     chunkRepo,
   });
 
-  const generationModel = createGenerationModel({
-    apiKey: config.generationApiKey,
-  });
+  // role별 모델 레지스트리 — 노드마다 독립 모델(draft=상위 모델 등). default는 adapter,
+  // overrides는 eval/실험용 표면.
+  const models = createModelRegistry({ apiKey: config.generationApiKey });
 
   // 그래프 조립은 composition root 책임 — chat.service는 invoke만.
   // VoyageRerankCompressor가 embedding과 동일 키(VOYAGE_API_KEY)로 rerank-2.5 호출.
   // createRagGraph는 full graph + retrieval-only path 둘 다 반환(lbr-eval용).
   const rag = createRagGraph({
-    generationModel,
+    models,
     retrieve: retrieval.retrieve,
     voyageApiKey: config.embeddingApiKey,
   });
@@ -61,7 +61,8 @@ export async function createCore(config: CoreConfig): Promise<Core> {
   const chat = createChatService({
     rag,
     messageRepo,
-    modelId: generationModel.modelId,
+    // persist 라벨은 최종 답변 생성 모델 기준.
+    modelId: models.answer.modelId,
   });
 
   return {

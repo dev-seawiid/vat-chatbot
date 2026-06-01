@@ -78,13 +78,18 @@ const FUSE_TOP_N = 10;
 // 갈래 A·B 모두 본 노드 출력(state.rewrittenQuery)을 검색 키로 사용.
 export const rewriteQuery = (deps: NodeDeps) =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const messages = state.messages ?? [];
     const last = messages[messages.length - 1];
     const lastText = last?.text ?? "";
     const history = messages.slice(0, -1);
 
     if (history.length === 0) {
-      dbg("rewrite_query", { bypass: true, query: preview(lastText, 200) });
+      dbg("rewrite_query", {
+        ms: Date.now() - t0,
+        bypass: true,
+        query: preview(lastText, 200),
+      });
       return { rewrittenQuery: lastText };
     }
 
@@ -100,7 +105,9 @@ export const rewriteQuery = (deps: NodeDeps) =>
       .join("\n");
     const userContent = `대화:\n${historyLines}\nuser: ${lastText}`;
 
-    const rewriteModel = deps.model.withStructuredOutput(RewriteSchema);
+    const rewriteModel = deps.models.rewrite.model.withStructuredOutput(
+      RewriteSchema,
+    );
     const result = (await rewriteModel.invoke([
       { role: "system", content: REWRITE_QUERY_SYSTEM },
       { role: "user", content: userContent },
@@ -108,6 +115,7 @@ export const rewriteQuery = (deps: NodeDeps) =>
 
     const rewritten = result.rewrittenQuery?.trim() || lastText;
     dbg("rewrite_query", {
+      ms: Date.now() - t0,
       bypass: false,
       original: preview(lastText, 200),
       rewritten: preview(rewritten, 200),
@@ -127,6 +135,7 @@ function pickQuery(state: RagStateType): string {
 // 갈래 A: rewritten query 직접 검색.
 export const searchDirect = (deps: NodeDeps) =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const query = pickQuery(state);
     const chunks = await searchWithRerank(
       deps.retrieve,
@@ -135,6 +144,7 @@ export const searchDirect = (deps: NodeDeps) =>
       DIRECT_K,
     );
     dbg("search_direct", {
+      ms: Date.now() - t0,
       query: preview(query, 200),
       chunkCount: chunks.length,
       chunkIds: chunks.map((c) => c.chunkId),
@@ -145,13 +155,18 @@ export const searchDirect = (deps: NodeDeps) =>
 // 갈래 B-1: LLM 자체지식 draft + atomic claims 생성. 출력은 사용자 비노출, 검색 키 전용.
 export const generateDraft = (deps: NodeDeps) =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const query = pickQuery(state);
-    const draftModel = deps.model.withStructuredOutput(DraftSchema);
+    // today 주입 — draft가 자기 지식 중 "현재 시행 중" 버전(최근 개정 반영)으로 초안을 쓰게
+    // anchor. 검색 키를 현행 어휘에 가깝게 만드는 목적(컷오프 이내 개정에 한해 효과).
+    const today = new Date().toISOString().slice(0, 10);
+    const draftModel = deps.models.draft.model.withStructuredOutput(DraftSchema);
     const result = (await draftModel.invoke([
-      { role: "system", content: DRAFT_WITH_CLAIMS_SYSTEM },
+      { role: "system", content: `<today>${today}</today>\n\n${DRAFT_WITH_CLAIMS_SYSTEM}` },
       { role: "user", content: query },
     ])) as Draft;
     dbg("generate_draft", {
+      ms: Date.now() - t0,
       query: preview(query, 200),
       draft: preview(result.draft, 400),
       claims: result.claims,
@@ -162,6 +177,7 @@ export const generateDraft = (deps: NodeDeps) =>
 // 갈래 B-2: claim별 retrieve+rerank 병렬.
 export const claimSearches = (deps: NodeDeps) =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const claims = state.claims ?? [];
     const results = await Promise.all(
       claims.map((c) =>
@@ -169,6 +185,7 @@ export const claimSearches = (deps: NodeDeps) =>
       ),
     );
     dbg("claim_searches", {
+      ms: Date.now() - t0,
       perClaim: results.map((r, i) => ({
         claim: preview(claims[i] ?? "", 120),
         chunkIds: r.map((c) => c.chunkId),
@@ -180,11 +197,13 @@ export const claimSearches = (deps: NodeDeps) =>
 // fuse: 두 갈래 ranked list를 RRF로 결합 → top N. deps 불요.
 export const fuse = () =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const lists: SearchResult[][] = [];
     if (state.directChunks?.length) lists.push(state.directChunks);
     if (state.claimChunks?.length) lists.push(...state.claimChunks);
     const fused = reciprocalRankFusion(lists, FUSE_TOP_N);
     dbg("fuse", {
+      ms: Date.now() - t0,
       listCount: lists.length,
       perListCount: lists.map((l) => l.length),
       fusedCount: fused.length,

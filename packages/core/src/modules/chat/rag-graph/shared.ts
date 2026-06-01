@@ -7,7 +7,8 @@ import {
   VoyageRerankCompressor,
 } from "#modules/retrieval/index";
 
-import type { GenerationModel } from "../generation.adapter";
+import type { ModelRegistry } from "../llm.adapter";
+import { PROMPT_VERSION } from "../prompt";
 
 // 그래프 state — 모든 노드 공통 channel. retrieval/answer subgraph 둘 다 동일 schema 공유.
 // LangGraph TS는 같은 schema끼리 subgraph wrap 시 channel 자동 read/write.
@@ -30,21 +31,22 @@ export type RagStateType = typeof RagState.State;
 
 // composition root(createRagGraph)가 받는 외부 deps.
 export type RagGraphDeps = {
-  generationModel: GenerationModel;
+  models: ModelRegistry;
   retrieve: RetrieveFn;
   voyageApiKey: string;
 };
 
 // 개별 노드 factory가 받는 deps — composition root에서 한 번 만들어 모든 노드에 공유.
+// 노드는 deps.models[role].model로 자기 역할 모델을 조회한다.
 export type NodeDeps = {
-  model: GenerationModel["model"];
+  models: ModelRegistry;
   retrieve: RetrieveFn;
   rerank: VoyageRerankCompressor;
 };
 
 export function toNodeDeps(deps: RagGraphDeps): NodeDeps {
   return {
-    model: deps.generationModel.model,
+    models: deps.models,
     retrieve: deps.retrieve,
     rerank: new VoyageRerankCompressor({ apiKey: deps.voyageApiKey }),
   };
@@ -54,7 +56,7 @@ export function toNodeDeps(deps: RagGraphDeps): NodeDeps {
 const RAG_DEBUG = process.env.RAG_DEBUG === "1";
 export function dbg(node: string, payload: Record<string, unknown>): void {
   if (!RAG_DEBUG) return;
-  console.error(`\n========== [rag:${node}] ==========`);
+  console.error(`\n========== [rag:${node}] (prompt ${PROMPT_VERSION}) ==========`);
   console.error(JSON.stringify(payload, null, 2));
 }
 

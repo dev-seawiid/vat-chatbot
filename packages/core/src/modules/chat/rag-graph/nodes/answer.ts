@@ -140,6 +140,7 @@ function verifyCitations(
 // chat.service의 generation-only 모드도 본 함수를 직접 호출(retrieval 우회, draft·claims 빈 입력).
 export const answer = (deps: NodeDeps) =>
   async (state: RagStateType) => {
+    const t0 = Date.now();
     const chunks = state.toolChunks ?? [];
     const draft = state.draft ?? "";
     const claims = state.claims ?? [];
@@ -147,7 +148,7 @@ export const answer = (deps: NodeDeps) =>
     const today = new Date().toISOString().slice(0, 10);
     const tools = createAnswerTools();
     const agent = createReactAgent({
-      llm: deps.model,
+      llm: deps.models.answer.model,
       tools,
       prompt: `<today>${today}</today>\n\n${ANSWER_SYSTEM}`,
       responseFormat: AnswerSchema,
@@ -180,7 +181,13 @@ export const answer = (deps: NodeDeps) =>
     const { verified, trace } = verifyCitations(rawCitations, chunks);
 
     dbg("answer", {
+      ms: Date.now() - t0,
       chunkInput: chunks.length,
+      // 입력 chunk 식별자만 — 법조문 본문 비노출. "id · doc §조 · section" 한 줄.
+      inputChunks: chunks.map(
+        (c) =>
+          `${c.chunkId.slice(0, 8)} · ${c.docTitle} §${String(c.metadata.article ?? "?")} · ${c.sectionPath ?? ""}`,
+      ),
       lastUser: preview(lastUserText, 200),
       toolCalls: answerToolMessages.map((m) => ({
         name: m.name,
