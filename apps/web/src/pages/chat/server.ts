@@ -61,6 +61,12 @@ export async function streamChat(input: StreamChatInput) {
     );
 
   return createUIMessageStream<ChatUIMessage>({
+    // 200 응답 후 스트림 중간 실패(LLM/네트워크)는 여기로만 surface — 없으면 AI SDK 기본
+    // 마스킹("An error occurred")으로 삼켜져 서버에 why 로그가 안 남는다.
+    onError: (err) => {
+      console.error("[stream] chat stream failed mid-flight:", err);
+      return "답변 생성 중 오류가 발생했습니다.";
+    },
     execute: async ({
       writer,
     }: {

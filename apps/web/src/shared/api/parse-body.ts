@@ -31,3 +31,7 @@ export async function parseJsonBody<T>(
 export function badRequest(message: string): Response {
   return new Response(message, { status: 400 });
 }
+
+export function serverError(message: string): Response {
+  return new Response(message, { status: 500 });
+}

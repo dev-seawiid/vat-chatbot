@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { extractUserText, MAX_MESSAGE_LENGTH } from "@/entities/message";
 import { streamChat } from "@/pages/chat/server";
-import { badRequest, parseJsonBody } from "@/shared/api/server";
+import { badRequest, parseJsonBody, serverError } from "@/shared/api/server";
 import { langfuseSpanProcessor } from "@/shared/lib/observability/server";
 import { withRateLimit } from "@/shared/lib/security/server";
 
@@ -26,11 +26,20 @@ async function handleChat(req: Request): Promise<Response> {
   if (!query) return badRequest("empty query");
   if (query.length > MAX_MESSAGE_LENGTH) return badRequest("query too long");
 
-  const stream = await streamChat({
-    conversationId: parsed.data.conversationId,
-    query,
-    startedAt,
-  });
+  // stream 반환 전 단계(core 초기화·retrieval·LLM 첫 호출)는 여기서 reject될 수 있다.
+  // try로 감싸지 않으면 raw 500 + 아래 flush 스킵으로 trace까지 유실된다.
+  let stream;
+  try {
+    stream = await streamChat({
+      conversationId: parsed.data.conversationId,
+      query,
+      startedAt,
+    });
+  } catch (err) {
+    console.error("[chat] streamChat failed before streaming:", err);
+    scheduleLangfuseFlush();
+    return serverError("답변 생성에 실패했습니다.");
+  }
 
   scheduleLangfuseFlush();
   return createUIMessageStreamResponse({ stream });
