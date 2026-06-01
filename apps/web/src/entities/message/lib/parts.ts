@@ -1,3 +1,5 @@
+import type { ProgressStage } from "@vat/core";
+
 import type { ChatUIMessage, Citation } from "../types";
 
 export function getText(message: ChatUIMessage): string {
@@ -26,6 +28,15 @@ export function getTraceId(message: ChatUIMessage): string | null {
     if (part.type === "data-trace") return part.data.id;
   }
   return null;
+}
+
+// 진행 stage는 스트리밍 중 단조 증가하며 갱신 — 최신 1건만 현재 단계. 마지막 part 채택.
+export function getProgress(message: ChatUIMessage): ProgressStage | null {
+  let stage: ProgressStage | null = null;
+  for (const part of message.parts) {
+    if (part.type === "data-progress") stage = part.data.stage;
+  }
+  return stage;
 }
 
 // 외부 입력(JSON.parse 결과)을 캐스팅 없이 type guard로 좁힌 뒤 user 텍스트만 추출.

@@ -56,10 +56,10 @@ async function main(): Promise<void> {
     log(`filter  : ${JSON.stringify(filter ?? null)}`);
     log(`mode    : full\n`);
 
-    const { textStream, citationStream, chunks, finish } = await core.chat.ask(
-      query,
-      { k, filter },
-    );
+    const { textStream, citationStream, finish } = await core.chat.ask(query, {
+      k,
+      filter,
+    });
 
     const textPump = (async () => {
       log("--- answer ---");
@@ -88,7 +88,11 @@ async function main(): Promise<void> {
 
     if (json) {
       emitJson(
-        buildPayload({ answer: meta.text, chunks, citations: meta.citations }),
+        buildPayload({
+          answer: meta.text,
+          chunks: meta.chunks,
+          citations: meta.citations,
+        }),
       );
     }
   } finally {

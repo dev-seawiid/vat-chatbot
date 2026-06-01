@@ -93,7 +93,7 @@ async function main(): Promise<void> {
       emitJson(
         buildPayload({
           answer: meta.text,
-          chunks: r.chunks,
+          chunks: meta.chunks,
           citations: meta.citations,
         }),
       );

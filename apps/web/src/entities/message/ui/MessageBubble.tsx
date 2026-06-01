@@ -12,6 +12,8 @@ type MessageBubbleProps = {
   text: string;
   citations: Citation[];
   isStreaming?: boolean;
+  // ADR-0003 §8 — text 도착 전 스트리밍 중 표시할 진행 단계 문구.
+  statusLabel?: string | null;
   onCiteClick?: () => void;
 };
 
@@ -20,6 +22,7 @@ export function MessageBubble({
   text,
   citations,
   isStreaming = false,
+  statusLabel = null,
   onCiteClick,
 }: MessageBubbleProps) {
   const isUser = role === "user";
@@ -27,6 +30,9 @@ export function MessageBubble({
   const showRefusalBadge =
     isAssistant && citations.length === 0 && text.trim().length > 0;
   const visibleCitations = isAssistant ? citations : [];
+  // 본문 없으면 진행 단계 문구로 대체 — retrieval 동안 빈 화면 방지.
+  const showStatus =
+    isAssistant && isStreaming && text.length === 0 && statusLabel !== null;
 
   return (
     <article
@@ -60,11 +66,12 @@ export function MessageBubble({
 
       <div
         className={cn(
-          "whitespace-pre-wrap font-sans text-[14.5px] leading-[1.7] text-fg",
+          "whitespace-pre-wrap font-sans text-[14.5px] leading-[1.7]",
+          showStatus ? "text-fg-soft" : "text-fg",
           isStreaming && !isUser && "text-shimmer",
         )}
       >
-        {text}
+        {showStatus ? statusLabel : text}
         {isStreaming && !isUser && (
           <span
             aria-hidden

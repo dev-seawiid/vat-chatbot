@@ -45,7 +45,7 @@ export async function streamChat(input: StreamChatInput) {
   // cohort 비교 가능. setActiveTraceIO는 v5에서 deprecated 마크지만 trace-level input/output을
   // 박는 유일한 표면 — 대안(root chain span 직접 lifecycle 관리)은 stream 종료 타이밍과
   // 결합돼 복잡해진다.
-  const { textStream, citationStream, chunks, finish } =
+  const { textStream, citationStream, eventStream, finish } =
     await propagateAttributes(
       {
         sessionId: input.conversationId,
@@ -92,7 +92,14 @@ export async function streamChat(input: StreamChatInput) {
         }
       })();
 
-      await Promise.all([textPump, citationPump]);
+      // ADR-0003 §8 — retrieval 단계별 진행 stage. text 도착 전 빈 화면을 단계 표시로 메움.
+      const eventPump = (async () => {
+        for await (const event of eventStream) {
+          writer.write({ type: "data-progress", data: event });
+        }
+      })();
+
+      await Promise.all([textPump, citationPump, eventPump]);
 
       const meta = await finish;
       // 같은 trace의 HTTP root span context에서 호출 — trace output으로 박힘.
@@ -104,7 +111,7 @@ export async function streamChat(input: StreamChatInput) {
           text: meta.text,
           // verify 통과 list만 박제 — 환각 인용이 영속 저장소에 새지 않도록.
           citations: meta.citations,
-          retrievedChunkIds: chunks.map((c) => c.chunkId),
+          retrievedChunkIds: meta.chunks.map((c) => c.chunkId),
           model: meta.model,
           latencyMs: Date.now() - input.startedAt,
           inputTokens: meta.inputTokens,

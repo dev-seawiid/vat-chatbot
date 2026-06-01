@@ -3,6 +3,8 @@
 import {
   type ChatUIMessage,
   getCitations,
+  getProgress,
+  getProgressLabel,
   getText,
   getTraceId,
   MessageBubble,
@@ -24,6 +26,8 @@ export function MessageItem({ message, isStreaming }: MessageItemProps) {
   const bubbleStreaming = isStreaming && isAssistant;
   const traceId = isAssistant ? getTraceId(message) : null;
   const showFeedback = isAssistant && !bubbleStreaming && traceId !== null;
+  const stage = bubbleStreaming ? getProgress(message) : null;
+  const statusLabel = stage ? getProgressLabel(stage) : null;
 
   return (
     <div>
@@ -32,6 +36,7 @@ export function MessageItem({ message, isStreaming }: MessageItemProps) {
         text={text}
         citations={citations}
         isStreaming={bubbleStreaming}
+        statusLabel={statusLabel}
         onCiteClick={() => openCitationPanel({ citations })}
       />
       {showFeedback && (

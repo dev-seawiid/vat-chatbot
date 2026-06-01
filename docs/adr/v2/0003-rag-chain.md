@@ -98,3 +98,14 @@
   - rewrite·normalize 2-노드 분리: LLM 호출 +1회 추가. 두 task 의미 연관 + mini model 인지 부담 분산 가능 판단 → 단일 노드 유지. 후속 슬라이스에서 metric 불안정 시 분리 옵션 보유.
   - few-shot 다수(3~5건): over-prompting risk + reasoning model(gpt-5-mini reasoning.effort=low) zero-shot 선호 트렌드 보고 → 1건 edge case로 절제.
 - **수용 trade-off**: LLM 호출 +1회(턴당). 단일 턴에서는 bypass — multi-turn에서만 비용 발생. 정확도 회복 vs latency 트레이드. v3 prompt 선택은 측정으로 확정 필요 — lbr-eval로 prompt variant(zero-shot · 1-shot · 5-shot, normalization on/off) ablation 예정.
+
+## 8. 진행 상태 스트리밍 — 단계 이벤트(체감 지연)
+
+- **문제점**: retrieval 갈래(`rewrite_query`→`generate_draft`→`claim_searches`·rerank·`fuse`)가 직렬 LLM·외부 API 왕복으로 수 초 소요. 답변은 `generate_answer` 도달 후에야 첫 글자 → 그 전 구간 내내 빈 화면. 답변 본문 token streaming은 §3(structured output 1회 + 사후 검증)이 의도적으로 포기 → 빈 화면을 답변 스트리밍으로 메울 수 없음.
+- **Before**: `ask`가 `graph.invoke`로 그래프 완주 후 반환. `AskResult`의 text/citation stream은 완료 시 1회 emit.
+- **After**: `ask`를 `graph.stream`(streamMode `updates` + `subgraphs`)로 전환. 노드 완료마다 stage 이벤트를 `eventStream`(AskResult 추가 채널)으로 흘림. 웹은 별도 `data-progress` 파트로 전송, UI가 현재 단계 표시. 노드명→stage enum은 core, stage→문구는 web(그래프 구조 비노출 + i18n). §3·citation 로직 불변.
+- **비채택 대안**:
+  - draft(HyDE) 추론 텍스트를 '사고'로 노출: 모델 추측이라 틀린 조항 노출 위험. 정적 라벨만 채택.
+  - streamMode `custom`(노드 진입 시 emit): 정확한 진입 라벨 가능하나 6노드 전부 emit 코드 추가. `updates`로 부족하면 후속.
+  - 답변 token streaming 동시 복원: §3 뒤집기(structured output·검증 분리 재설계) 필요 → 별도 결정, 본 슬라이스 제외.
+- **수용 trade-off**: 실제 지연 단축 아님 — 체감만. `updates`는 노드 *완료* 기준이라 진입 라벨은 한 단계 지연(선형 순서로 인디케이터 전진해 보정).
