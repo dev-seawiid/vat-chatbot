@@ -118,7 +118,7 @@ async def _score_one(metric, sample: dict) -> tuple[str, float | None, float]:
 
 
 async def score_all(metrics: list, sample: dict) -> tuple[dict[str, float], float]:
-    """metric 4종 asyncio.gather 동시 호출 — wall clock = max(metric) ≈ 4배 단축.
+    """metric 2종 asyncio.gather 동시 호출 — wall clock = max(metric).
     빈 응답이면 response-사용 metric은 0점 skip(judge 호출 X).
     반환 total = wall clock 시간(직렬 합이 아님)."""
     response_empty = not sample.get("response", "").strip()
