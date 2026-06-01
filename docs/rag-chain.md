@@ -82,10 +82,12 @@ type SearchResult = {
 
 ## 4. 모델 결정
 
-`generation.adapter.ts`:
-- `GENERATION_MODEL_ID = "gpt-5-mini"`
+`llm.adapter.ts` — `MODEL_DEFAULTS`가 노드 role별 모델·튜닝을 보유. 노드는 `deps.models[role].model`로 조회:
+- `rewrite` → `gpt-5-mini`, effort `low`
+- `draft`(HyDE) → `gpt-5`, effort `low` — mini로 부족해 tier 인상. recall 개선은 lbr-eval로 검증
+- `answer` → `gpt-5-mini`, effort `low` + verbosity `low`
 - Provider: `@langchain/openai`의 `ChatOpenAI` 직접 import (universal factory 비채택 — Turbopack이 변수 dynamic import를 정적 해결 못해 web bundle에서 500. provider 1개라 universal 무의미)
-- `reasoning.effort = "low"` + `verbosity = "low"` — 검색을 결정론적 그래프로 옮겨 LLM 호출당 무거운 reasoning 불필요. draft·answer 둘 다 low
+- `createModelRegistry({ apiKey, overrides })` — overrides로 코드 수정 없이 role별 모델/effort 교체(eval·실험)
 
 같은 `BaseChatModel` 인터페이스를 draft·answer 노드가 소비. provider 교체 시 본 파일만 수정.
 
