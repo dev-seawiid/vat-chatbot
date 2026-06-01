@@ -2,8 +2,7 @@ import { desc, eq } from "drizzle-orm";
 
 import type { Citation } from "#common/citation";
 import type { Db } from "#database/client";
-
-import { conversations, messages } from "./schema";
+import { conversations, messages } from "#database/schema/chat";
 
 export type SavePairArgs = {
   conversationId: string;

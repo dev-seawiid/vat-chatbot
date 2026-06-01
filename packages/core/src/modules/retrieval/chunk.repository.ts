@@ -2,8 +2,7 @@ import { cosineDistance, eq, sql } from "drizzle-orm";
 
 import { traceSpan } from "#common/telemetry";
 import type { Db } from "#database/client";
-
-import { chunks, documents } from "./schema";
+import { chunks, documents } from "#database/schema/retrieval";
 
 // spec §2.1 — chunks aggregate에 대한 Repository. Drizzle 객체 + SQL을 외부에 노출하지 않고
 // retrieval service가 본 모듈을 통해서만 query.
