@@ -56,7 +56,11 @@ def parse_file(extract_path: Path) -> ParsedDocument:
     for i, t in enumerate(data.get("texts", [])):
         if t.get("content_layer") != "body":
             continue
-        raw = (t.get("text") or "").strip()
+        # 호(號) 번호 보존 — docling은 enumerated list_item의 marker("1."·"2.")를 text에서
+        # 떼어 orig·marker에만 둔다. text를 쓰면 호 계층이 사라져(예: 제36조제1항 1·2호) 조문이
+        # run-on으로 뭉개지고 LLM이 조건(임계)을 못 읽는다. orig(마커 포함 원문) 우선 — 비list·
+        # 목(目) 요소는 orig==text라 영향 없음.
+        raw = (t.get("orig") or t.get("text") or "").strip()
         if not raw:
             continue
         if _is_noise(raw):

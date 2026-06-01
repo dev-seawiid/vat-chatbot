@@ -19,8 +19,8 @@ type ModelSpec = {
 
 const MODEL_DEFAULTS: Record<NodeModelRole, ModelSpec> = {
   rewrite: { modelId: "gpt-5-mini", effort: "low" },
-  draft: { modelId: "gpt-5-mini", effort: "low" },
-  answer: { modelId: "gpt-5-mini", effort: "low" },
+  draft: { modelId: "gpt-5", effort: "low" },
+  answer: { modelId: "gpt-5", effort: "low" },
 };
 
 export type GenerationModel = {
