@@ -31,9 +31,9 @@ export function SiteHeader() {
           />
           <span className="flex min-w-0 flex-col leading-none">
             <span className="truncate text-[13px] font-medium tracking-[-0.01em] text-fg sm:text-[14px]">
-              <span className="sm:hidden">VAT RAG</span>
+              <span className="sm:hidden">부가세 상담</span>
               <span className="hidden sm:inline">
-                부가세 신고 가이드 RAG 챗봇
+                부가가치세 법령 상담 챗봇
               </span>
             </span>
             <span className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.2em] text-fg-muted sm:text-[10px] sm:tracking-[0.22em]">

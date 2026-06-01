@@ -9,8 +9,8 @@ import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import "@/app/styles/global.css";
 
 export const metadata: Metadata = {
-  title: "부가세 신고 가이드 RAG 챗봇",
-  description: "국세청 공식 자료 기반 RAG 챗봇 (학습용 토이)",
+  title: "부가가치세 법령 상담 챗봇",
+  description: "국세청 공식 자료 기반 부가가치세 법령 상담 챗봇 (학습용 토이)",
 };
 
 export default function RootLayout({
