@@ -6,7 +6,7 @@ ingest plane과 retrieval plane이 같은 모델·차원·호출 모드를 박�
 
 | 항목 | 값 | 박제 위치 |
 |---|---|---|
-| 모델 | `voyage-4` (ADR-0002 §1.5) | `jobs/ingest/src/ingest/shared/config.py::voyage_model` default + `packages/core/src/env.ts::VOYAGE_MODEL` default. 양 plane이 `VOYAGE_MODEL` env로 통제 |
+| 모델 | `voyage-4` | `jobs/ingest/src/ingest/shared/config.py::voyage_model` default + `packages/core/src/env.ts::VOYAGE_MODEL` default. 양 plane이 `VOYAGE_MODEL` env로 통제 |
 | 차원 | 1024 | `chunks.embedding vector(1024)` (Drizzle + SQLAlchemy 양쪽) |
 | input_type 분리 | `document` vs `query` | 두 mode가 다르게 학습돼 섞으면 검색 품질 ↓ |
 
@@ -21,58 +21,24 @@ ingest plane과 retrieval plane이 같은 모델·차원·호출 모드를 박�
 | Retry | SDK 자체 5회 (`max_retries=5`) | 없음 — 실패 시 throw |
 | 캐싱 | `content_hash` 키로 로컬 JSON 캐시 (재호출 0 비용) | 없음 (query마다 새 호출) |
 
-## 3. Ingest (document mode)
+## 3. 적재 시 임베딩 (document mode)
 
-`jobs/ingest/src/ingest/embedding/embedder.py`:
-```python
-DEFAULT_BATCH_SIZE = 128  # voyage 한도 1000건/120K 토큰 — 평균 ~200토큰 × 128 ≈ 26K (보수)
-SDK_MAX_RETRIES = 5       # 429/5xx 자동 백오프
+ingest 단계에서 청크를 문서용(`input_type="document"`) 벡터로 변환한다. 구현은 `embedder.py`(`voyageai` Python SDK, 재시도 5회).
 
-def embed_documents(texts, batch_size=128, model=None):
-    client = voyageai.Client(api_key=..., max_retries=5)
-    model = model or get_settings().voyage_model  # default voyage-4
-    for batch in batches(texts, 128):
-        result = client.embed(batch, model=model, input_type="document")
-        out.extend(result.embeddings)
-    return out
-```
+- **배치 처리**: 청크를 128건(`DEFAULT_BATCH_SIZE`)씩 묶어 호출한다. Voyage 한도(1회 1000건·120K 토큰) 안쪽의 보수적인 값.
+- **캐시로 재호출 방지**: `content_hash`를 키로 `.cache/embeddings/{sid}.json`에 결과를 저장하고, 캐시에 없는 청크만 API를 부른다. 텍스트가 그대로면 재실행해도 비용이 0이고, 청크 크기·overlap이 바뀌면 해시가 달라져 자동으로 다시 임베딩한다.
 
-**`content_hash` 기반 캐시** (`scripts/embed_chunks.py`):
-- `.cache/embeddings/{sid}.json`에 기존 결과 로드.
-- 새 청크 중 `content_hash`가 캐시에 없는 것만 voyage API 호출.
-- 동일 텍스트 재실행 시 API 비용 0. 청크 size·overlap 조정 같은 큰 변경에선 hash가 바뀌어 재호출.
+## 4. 검색 시 임베딩 (query mode)
 
-## 4. Retrieval (query mode)
+검색 시 사용자 질의를 질의용(`input_type="query"`) 벡터로 변환한다. 구현은 `embedding.adapter.ts`. Voyage TS SDK가 아직 불안정해 `fetch`로 직접 호출하며, 질의는 한 건씩 처리한다.
 
-`packages/core/src/modules/retrieval/embedding.adapter.ts`. `traceEmbedding` HOF로 wrap해 Langfuse generation span에 model + Voyage `usage.total_tokens`를 박는다:
-
-```ts
-const embed: EmbedFn = traceEmbedding(
-  {
-    name: "voyage.embed",
-    attrs: ([text, opts]) => ({ input: text, model: modelId, metadata: { input_type: opts.input_type } }),
-    output: (embedding) => ({ dim: embedding.length }),  // 벡터 자체는 trace UI에 가치 없음
-  },
-  async (text, opts) => {
-    const res = await fetch(VOYAGE_URL, { /* input_type: "query" */ });
-    const parsed = VoyageResponseSchema.parse(await res.json());
-    if (parsed.usage) setEmbeddingUsage(parsed.usage.total_tokens);  // 응답 파싱 후 ambient update
-    return parsed.data[0]!.embedding;
-  },
-);
-```
-
-호출 위치: `RetrievalService.retrieve`가 `embed(query, { input_type: "query" })` → 결과 vector를 `ChunkRepository.search`에 넘김. retrieve 전체가 `retriever` span으로 감싸지고 그 안에 `embedding`/`pgvector.search` 두 child가 박힌다. 상세 흐름은 [retrieval.md](./retrieval.md), trace 스키마는 [observability.md §4](./observability.md#4-trace-스키마).
+- **호출 흐름**: `RetrievalService.retrieve`가 이 어댑터를 불러 질의 벡터를 얻고, 그 벡터를 `ChunkRepository.search`에 넘겨 유사 청크를 찾는다. 상세 [rag-chain §2](./rag-chain.md#2-검색-primitive-retrievalservice).
+- **관측**: `traceEmbedding`이 모델명과 Voyage `usage.total_tokens`를 Langfuse generation span에 기록한다(벡터 값 자체는 남기지 않음). trace 구조는 [observability §4](./observability.md#4-trace-스키마).
 
 ## 5. 모델 교체 시 절차
 
 `voyage-4` → 다른 모델로 바꿀 때:
 1. `.env`에 `VOYAGE_MODEL=<new>` 설정 (양 plane 동시 적용)
 2. 차원이 다르면 `chunks.embedding` 컬럼 `vector(N)` 마이그레이션 + HNSW 인덱스 재생성
-3. `.cache/embeddings/` 삭제 후 `pnpm ingest:embed` 재실행 → `pnpm ingest:load` 재실행 (ADR-0002 §1.6 reset+reload로 stale vector 잔류 방지)
+3. `.cache/embeddings/` 삭제 후 `pnpm ingest:embed` 재실행 → `pnpm ingest:load` 재실행 (reset+reload로 stale vector 잔류 방지)
 4. RAGAS 골든셋 재실행으로 회귀 측정 ([evaluation.md](./evaluation.md))
-
-## 6. 후속
-
-- Voyage retry는 TS plane 미구현 — query 호출 실패 시 즉시 throw. 외부 호출 일시 실패 대응은 [TODO.md](./TODO.md).
-- 모델 변경 비용이 크므로 candidates 비교는 RAGAS 골든셋으로 baseline 측정 후 결정.

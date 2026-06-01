@@ -1,103 +1,71 @@
 # Evaluation
 
-Langfuse Dataset 기반 RAGAS 평가. ADR-0004의 결정 — golden set 재구성 + judge LLM nano tier + AnswerCorrectness → FactualCorrectness 교체.
+평가 지표와 실행 절차. 평가셋(시험 문제) 설계는 [goldenset.md](./goldenset.md).
 
-- **golden set 등록**: `data/eval/golden_set.csv`를 Langfuse UI에서 drag-drop 한 번 업로드 (헤더가 Langfuse 필드와 일치 → 자동 매핑)
-- **scoring**: `jobs/ragas-eval/scripts/run_eval.py` — Langfuse Dataset iterate → RAG 실행 → RAGAS metric 산출 → `span.score_trace`로 push back
+**2개 layer로 잰다** — ① **검색 품질**(lbr-eval), ② **답 품질**(RAGAS). 검색이 회수하지 못한 조문은 생성 단계에서 복구할 수 없어 검색 품질이 답 품질의 상한을 정한다. 그래서 검색 layer를 먼저 본다. 둘 다 `data/golden_set.csv`를 입력으로 쓴다.
 
-ADR 추적: [adr/v2/0004-evaluation.md](./adr/v2/0004-evaluation.md). Phase 1 결정: [superpowers/specs/2026-05-19-rag-eval-ragas-phase1-design.md](./superpowers/specs/2026-05-19-rag-eval-ragas-phase1-design.md).
+## 1. 검색 품질 — lbr-eval
 
-## 1. 흐름
+`jobs/lbr-eval`. LegalBench-RAG (Pipitone 2024) 기반. LLM 채점 없이, 정답 조문(`must_include_articles`) ID set과 실제 검색 결과를 비교한다. 실제 서비스 검색 흐름(다듬기→2갈래→합치기)을 그대로 잰다.
 
+| 지표          | 정의                                 | 용도                                   |
+| ------------- | ------------------------------------ | -------------------------------------- |
+| **Recall@10** | 정답 조문 중 상위 10개가 회수한 비율 | **주요 지표** — 답 품질의 상한         |
+| Precision@10  | 상위 10개 중 정답 조문 비율          | 보조 — config·모델 변경 시 상대 비교용 |
+
+- **Recall@10이 주요 지표.** 누락 조문은 답으로 복구 불가하므로 회수율이 곧 답 품질의 천장이다.
+- Precision@10은 절대값이 낮다 — `must_include`가 sparse label이라 정답 외 유효 조문도 분모에 섞인다(recall 우선 설계의 의도된 trade-off). 절대값보다 같은 평가셋에서 config·모델을 바꿨을 때의 상대 변화를 본다.
+
+## 2. 답 품질 — RAGAS (2개)
+
+`jobs/ragas-eval`. 검색이 회수한 근거 위에서 생성된 답을 LLM이 채점한다.
+
+| 지표 | 측정 | 용도 | ground truth 참고 |
+| --- | --- | --- | --- |
+| `Faithfulness` | 답이 근거 조문에서 벗어나지 않는가 | 환각·근거 이탈 검출 | 불필요 (검색 근거만 대조) |
+| `FactualCorrectness(f1)` | 답이 모범답안과 사실이 맞는가 | 답 정확도 | 필요 (모범답안과 대조) |
+
+- 의미 유사도 기반 점수는 법령 톤에 불리해 쓰지 않고 사실 일치(F1)·근거 충실도만 본다. 임베딩 채점 의존 없음.
+- 두 지표 `asyncio.gather` 동시 호출. 빈 응답이면 response-사용 지표는 judge 호출 없이 0점 skip.
+
+## 3. 채점 LLM
+
+- judge: `openai/gpt-5-nano` (LiteLLM + instructor JSON mode), `llm.py::DEFAULT_MODEL`. 1 사이클 ≈ 56원·2~6분.
+- embedding 채점 없음 → RAGAS 2지표는 embedding judge 미사용.
+- 채점 layer만 LiteLLM 허용, 챗봇 본체는 직접 호출.
+
+## 4. 실행 흐름 (RAGAS, 2-phase)
+
+```mermaid
+flowchart TD
+  CSV["data/golden_set.csv"] -- "수동 업로드 (변경 시만)" --> DS["Langfuse Dataset"]
+  DS -- "pnpm ragas-eval:eval" --> P1
+  subgraph P1["Phase 1 — per-item, resumable"]
+    A["rag_run(question) — core CLI subprocess"] --> B["score_all — judge LLM 2종 병렬"] --> C["jsonl append + fsync"]
+  end
+  P1 --> P2
+  subgraph P2["Phase 2 — batch"]
+    D["item.run → span.score_trace per metric"] --> F["langfuse.flush()"]
+  end
 ```
-data/eval/golden_set.csv                ← git 백업 (diff·rollback용)
-  │
-  └─ Langfuse UI: Dataset CSV upload (수동, 변경 시만)
-        │
-        Langfuse Dataset (single source of truth)
-          │
-          └─ pnpm ragas-eval:eval        ← Python (jobs/ragas-eval)
-                run_eval.py (2-phase)
-                  Phase 1 [per-item, resumable]
-                    for item in remaining:
-                      answer, contexts = rag_run(question)        ← core CLI subprocess
-                      scores = score_all(metrics, sample)         ← judge LLM call 4종 병렬
-                      jsonl row append + fsync                    ← 비싼 judge 결과 영구화
-                    중단 시 jsonl까지가 진실, 재실행 시 done set으로 skip
-                  Phase 2 [batch]
-                    for row in jsonl:
-                      with item.run(run_name=...) as span:        ← Langfuse trace 생성·link
-                        span.score_trace(name, value) per metric
-                    langfuse.flush()                              ← 1회
-                    실패 시 재실행은 Phase 1 skip + Phase 2 재시도 (judge 비용 0)
-```
 
-### CSV 스키마 (Langfuse UI 명명 그대로)
+- Phase 1 중단 시 jsonl까지가 진실, 재실행 시 done set skip.
+- Phase 2 실패 시 Phase 1 skip + Phase 2만 재시도 (judge 비용 0).
 
-| column | type | 설명 |
-|---|---|---|
-| `id` | string | upsert key |
-| `Input` | string | 질문 |
-| `Expected Output` | string | ground truth 답변 |
-| `Metadata` | JSON string | `{"category","difficulty","tax_type"}` |
-
-run_name = `{dataset}-{timestamp}` — 매 실행이 별도 run. `LANGFUSE_RELEASE`는 git commit SHA로 cohort 라벨링.
-
-## 2. 메트릭 (RAGAS v0.4+ collections OOP API)
-
-`jobs/ragas-eval/scripts/run_eval.py::build_metrics`:
-
-| RAGAS | 측정 | reference 필요 |
-|---|---|---|
-| `Faithfulness` | 답을 statement로 분해 → context와 NLI | — |
-| `AnswerRelevancy` | 답에서 질문 역생성 → 원본과 cosine | — |
-| `ContextPrecisionWithReference` | retrieved chunk별 reference-aware relevance | ✓ |
-| `FactualCorrectness(mode="f1")` | claim-level precision/recall/F1 — embedding 항 제거 | ✓ |
-
-ADR-0004 §5에 따라 `AnswerCorrectness` → `FactualCorrectness` 교체. 사유: 법령 톤 retrieval vs 매뉴얼 톤 ground_truth의 표현 거리가 커서 embedding similarity 항이 사실 정답에 페널티. RAGAS v0.2+ 공식 Getting Started default와 정렬.
-
-**호출 방식**: `asyncio.gather`로 metric 4종 동시 호출 — wall clock ≈ max(metric) (≈ 4배 단축). 빈 응답이면 response-사용 metric은 0점 skip(judge 호출 X).
-
-## 3. Judge / Embedding
-
-ADR-0004 §6에 따라 Claude CLI subprocess → OpenAI nano tier로 교체:
-
-- judge: `openai/gpt-5-nano` (LiteLLM + instructor JSON mode). cold start ~50s × 120 call이 ~1-3s × 120 call로 단축 → 1 사이클 ≈ 56원·2~6분
-- embedding: Voyage `voyage/voyage-3` (LiteLLMEmbeddings) — `AnswerRelevancy`의 역생성-cosine용. core retrieval(`voyage-4`)과 별도 모델 고정 — RAGAS metric의 historical baseline 정합성 우선
-- 정책 정합: judge layer LiteLLM 허용(2026-05-19 결정). chat layer는 Claude/OpenAI 직접 사용
-- 구체 model ID는 `llm.py::DEFAULT_MODEL` 상수 (provider 수준만 spec)
-
-env (`jobs/ragas-eval/.env`):
-- `OPENAI_API_KEY` (judge)
-- `VOYAGE_API_KEY` (embeddings)
-- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` (dataset + trace push)
-- `LANGFUSE_DATASET_NAME` (필수)
-
-## 4. 골든셋 v2 (ADR-0004 §1-3)
-
-30문항 재구성. reference 풀:
-
-| 출처 | 건수 | 용도 |
-|---|---|---|
-| 매뉴얼·사례집 PDF | 3건 | 답변 톤 reference (인덱싱 X) |
-| 상담센터 Q&A (`nts_counseling_qna.jsonl`) | 27건 | 예정신고/예정고지 답변 reference |
-| 본사이트 게시판 메타 (`nts_homepage.jsonl`) | 10건 | 부가세 참고자료실 메타 |
-
-카테고리 분포(7 cat × E/M/H = 30): 기초신고 5 · 영세율/면세 5 · 매입세액공제 5 · 의제매입 3 · 간이과세 4 · 가산세 3 · 예정신고(신규) 5. 약점 영역(영세율·간이)은 유지로 capability discrimination 보존.
-
-신규 카테고리 슬러그 `vat-prelim-*` 추가. 나머지(`base/zero/input/presumed/simple/penalty`)는 기존과 동일.
+run_name = `{dataset}-{timestamp}` (매 실행 별도 run). `LANGFUSE_RELEASE`는 git commit SHA로 cohort 라벨링.
 
 ## 5. 입출력
 
 `.tmp/ragas-eval/results.jsonl` (Phase 1 산출, Phase 2 입력):
+
 ```jsonc
 {
   "sample_id": "vat-base-easy-1",
   "user_input": "...",
-  "retrieved_contexts": ["chunk content", ...],   // raw top-k (verify 통과 citation X — RAGAS 정확도용)
+  "retrieved_contexts": ["chunk content", ...],   // raw top-k (RAGAS 정확도용)
   "response": "...",
   "reference": "...",
-  "scores": { "faithfulness": 1.0, "answer_relevancy": 0.91, ... },
+  "scores": { "faithfulness": 1.0, "factual_correctness": 0.83, ... },
   "meta": { "category": "...", "latencyMs": 1820, ... }
 }
 ```
@@ -105,12 +73,6 @@ env (`jobs/ragas-eval/.env`):
 ## 6. CLI
 
 ```bash
-pnpm ragas-eval:sync          # uv sync (deps)
-pnpm ragas-eval:eval          # Phase 1 + Phase 2 chain
+pnpm ragas-eval:eval          # 답 품질 (Phase 1 + Phase 2)
+pnpm lbr-eval:eval            # 검색 품질 (R@k · P@k)
 ```
-
-## 7. 한계 (ADR-0004 §7)
-
-- **영세율 reference 부족**: 상담센터 영세율 사례가 robots 제약으로 미수집. 영세율 5문항은 매뉴얼·사례집 표/사례에 의존
-- **예정신고 reference 편중**: 신규 5문항이 단일 페이지(mi=1329) 기반 — `answer_relevancy`는 다음 run 모니터
-- **historical trend 단절**: AC → FC 교체로 점수 의미 달라짐 — v2 첫 run부터 baseline 재구축
