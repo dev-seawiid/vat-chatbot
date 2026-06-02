@@ -3,7 +3,6 @@
 export type Citation = {
   chunkId: string;
   docId: string;
-  sourceId: string;
   docTitle: string;
   docVersion: string | null;
   sourceUrl: string | null;
@@ -184,7 +183,6 @@ function findByWhitespaceNormalized(
 type ChunkLike = {
   chunkId: string;
   docId: string;
-  sourceId: string;
   docTitle: string;
   docVersion: string | null;
   sourceUrl: string | null;
@@ -202,7 +200,6 @@ export function toCitation(
   return {
     chunkId: chunk.chunkId,
     docId: chunk.docId,
-    sourceId: chunk.sourceId,
     docTitle: chunk.docTitle,
     docVersion: chunk.docVersion,
     sourceUrl: chunk.sourceUrl,
@@ -225,7 +222,6 @@ export function toCitationUnmatched(
   return {
     chunkId: chunk.chunkId,
     docId: chunk.docId,
-    sourceId: chunk.sourceId,
     docTitle: chunk.docTitle,
     docVersion: chunk.docVersion,
     sourceUrl: chunk.sourceUrl,

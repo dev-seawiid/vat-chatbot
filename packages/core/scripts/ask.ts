@@ -5,34 +5,29 @@ import { buildPayload, emitJson, logCitations } from "./lib/output";
 
 // 사용:
 //   pnpm core:ask "간이과세자 신고는 어떻게 해야 하나요?"
-//   pnpm core:ask "..." --tax_type=vat-simplified --k=6
+//   pnpm core:ask "..." --k=6
 //   pnpm core:ask "..." --json   # stdout 마지막 줄에 JSON (ragas-eval 브릿지)
 
 type Args = {
   query: string;
-  taxType?: string;
   k: number;
   json: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
-  let taxType: string | undefined;
   let k = 8;
   let json = false;
   for (const a of argv) {
-    if (a.startsWith("--tax_type=")) taxType = a.slice("--tax_type=".length);
-    else if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
+    if (a.startsWith("--k=")) k = parseInt(a.slice("--k=".length), 10);
     else if (a === "--json") json = true;
     else positional.push(a);
   }
   if (positional.length === 0) {
-    console.error(
-      'Usage: pnpm core:ask "<question>" [--tax_type=<value>] [--k=<n>] [--json]',
-    );
+    console.error('Usage: pnpm core:ask "<question>" [--k=<n>] [--json]');
     process.exit(1);
   }
-  return { query: positional.join(" "), taxType, k, json };
+  return { query: positional.join(" "), k, json };
 }
 
 async function main(): Promise<void> {
@@ -45,20 +40,17 @@ async function main(): Promise<void> {
   });
 
   try {
-    const { query, taxType, k, json } = parseArgs(process.argv.slice(2));
-    const filter = taxType ? { taxType } : undefined;
+    const { query, k, json } = parseArgs(process.argv.slice(2));
 
     // --json 모드: 인간용 출력은 stderr, stdout 마지막 한 줄 JSON만.
     const log = json ? console.error : console.log;
 
     log(`\nQuery   : ${query}`);
     log(`k       : ${k}`);
-    log(`filter  : ${JSON.stringify(filter ?? null)}`);
     log(`mode    : full\n`);
 
     const { textStream, citationStream, finish } = await core.chat.ask(query, {
       k,
-      filter,
     });
 
     const textPump = (async () => {
@@ -73,7 +65,7 @@ async function main(): Promise<void> {
     const citationPump = (async () => {
       for await (const c of citationStream) {
         console.error(
-          `[cite] ${c.sourceId} · ${c.docTitle}${c.page != null ? ` · p.${c.page}` : ""}`,
+          `[cite] ${c.docTitle}${c.page != null ? ` · p.${c.page}` : ""}`,
         );
       }
     })();

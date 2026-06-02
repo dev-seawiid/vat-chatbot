@@ -5,14 +5,12 @@
 export {
   createChunkRepository,
   type ChunkRepository,
-  type SearchFilter,
   type SearchOptions,
   type SearchResult,
 } from "./chunk.repository";
 export { createEmbeddingModel } from "./embedding.adapter";
 export {
   createRetrievalService,
-  type LookupArticleFn,
   type RetrievalService,
   type RetrieveFn,
   type RetrieveOptions,

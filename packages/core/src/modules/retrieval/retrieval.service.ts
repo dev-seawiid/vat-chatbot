@@ -1,28 +1,16 @@
 import { traceRetriever } from "#common/telemetry";
 
 import type { EmbedFn } from "./embedding.adapter";
-import type {
-  ChunkRepository,
-  SearchFilter,
-  SearchResult,
-} from "./chunk.repository";
+import type { ChunkRepository, SearchResult } from "./chunk.repository";
 
 export type RetrieveOptions = {
   k?: number;
-  filter?: SearchFilter;
 };
 
 export type RetrieveFn = (
   query: string,
   opts?: RetrieveOptions,
 ) => Promise<SearchResult[]>;
-
-// agent의 article_lookup 도구가 호출. paragraph는 옵션 — 없으면 같은 article의 모든 항 반환.
-export type LookupArticleFn = (args: {
-  law: string;
-  article: string;
-  paragraph?: number;
-}) => Promise<SearchResult[]>;
 
 export type RetrievalService = ReturnType<typeof createRetrievalService>;
 
@@ -45,7 +33,6 @@ export function createRetrievalService(deps: {
         input: {
           query,
           k: opts?.k ?? DEFAULT_TOP_K,
-          filter: opts?.filter ?? null,
         },
       }),
       // content 전문 박제 — Ragas류 evaluator 입력 + 디버깅에서 어떤 청크였는지 한 화면에.
@@ -67,12 +54,9 @@ export function createRetrievalService(deps: {
       return chunkRepo.search({
         embedding: queryEmbedding,
         k,
-        filter: opts.filter,
       });
     },
   );
 
-  const lookupArticle: LookupArticleFn = (args) => chunkRepo.findByArticle(args);
-
-  return { retrieve, lookupArticle };
+  return { retrieve };
 }

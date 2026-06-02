@@ -20,7 +20,6 @@ type InjectedChunkInput = {
   content: string;
   metadata: Record<string, unknown>;
   docId?: string;
-  sourceId?: string;
   docTitle?: string;
   docVersion?: string | null;
   sourceUrl?: string | null;
@@ -33,7 +32,6 @@ function loadChunks(path: string): SearchResult[] {
   return raw.map((c) => ({
     chunkId: c.chunkId,
     docId: c.docId ?? "",
-    sourceId: c.sourceId ?? "",
     docTitle: c.docTitle ?? "(injected)",
     docVersion: c.docVersion ?? null,
     sourceUrl: c.sourceUrl ?? null,

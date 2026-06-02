@@ -11,7 +11,7 @@ import {
 } from "./progress";
 import type { RagGraph } from "./rag-graph";
 
-// k/filter는 현재 graph 내부 retriever가 고정 옵션(k=50)으로 동작 — CLI(scripts/ask.ts) 인자는
+// k는 현재 graph 내부 retriever가 고정 옵션(k=50)으로 동작 — CLI(scripts/ask.ts) 인자는
 // 수신만 하고 효과 없음. 후속 슬라이스에서 RagState로 전파해 wire-through 예정.
 export type AskOptions = RetrieveOptions & {
   /** 주입 시 messageRepo.recentTurns로 history fetch → multi-turn. 미주입 시 single-turn. */
