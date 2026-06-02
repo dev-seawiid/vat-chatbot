@@ -1,6 +1,6 @@
 # DB Schema
 
-PostgreSQL + pgvector. 스키마 기준은 Drizzle ORM(`packages/core/src/modules/{retrieval,chat}/schema.ts`), 마이그레이션도 Drizzle(`pnpm db:migrate`). Python ingest는 같은 구조를 복제만 한다.
+PostgreSQL + pgvector. 스키마 기준은 Drizzle ORM(`packages/core/src/database/schema/{retrieval,chat}.ts`), 마이그레이션도 Drizzle(`pnpm db:migrate`). Python ingest는 같은 구조를 복제만 한다.
 
 ## 테이블 관계
 
@@ -46,7 +46,7 @@ documents에 종속(`doc_id` FK, CASCADE).
 
 - UNIQUE (`doc_id`, `content_hash`) — 같은 법령 내 중복 조각 차단
 - 인덱스: `doc_id`, **HNSW**(`embedding`, cosine) 벡터 검색
-- `metadata` 키: `law · article · paragraph · item · effective_date · refs[] · parent_article_id · heading_path[] · pages[] · source_node_ids[]` (의미는 [chunking.md](./chunking.md))
+- `metadata` 키: `chunk_id · law · effective_date · chapter · section · article · refs[] · pages[] · source_node_ids[] · token_count` (의미는 [chunking.md](./chunking.md))
 
 ## conversations — 대화 1건
 

@@ -29,6 +29,7 @@ flowchart LR
 
 응답: AI SDK `createUIMessageStream` SSE. parts:
 - `data-trace` — `{ id }` OTEL trace_id (피드백 score 송출 키)
+- `data-progress` — `{ stage }` `ProgressStage`(analyzing→searching→expanding→compiling→answering). 노드 완료마다 단조 증가 emit
 - `data-citation` — `Citation` 1건. generate 완료 후 verify 통과분 burst emit
 - `text-start` / `text-delta` / `text-end` — 답변 본문. 1회 emit (token streaming 없음)
 
@@ -53,17 +54,18 @@ core.close(): Promise<void>
 // chat (→ rag-chain.md)
 core.chat.ask(query: string, opts?: {
   conversationId?: string;     // 주입 시 직전 turn 합쳐 multi-turn rewrite
-  // k/filter는 graph가 노드별 고정 k(prefilter=50, DIRECT_K=8, CLAIM_K=4) — 인자 수신만, 효과 없음
+  k?: number;                  // graph가 노드별 고정 k(prefilter=50, DIRECT_K=8, CLAIM_K=4) — 수신만, 효과 없음
 }): Promise<{
-  textStream: AsyncIterable<string>;       // 1회 emit (token streaming 없음)
-  citationStream: AsyncIterable<Citation>; // verify 통과분만, burst 후 close
-  chunks: SearchResult[];                  // fuse 통과 top-10 — 호출자 persist용
+  textStream: AsyncIterable<string>;        // 1회 emit (token streaming 없음)
+  citationStream: AsyncIterable<Citation>;  // verify 통과분만, burst 후 close
+  eventStream: AsyncIterable<ProgressEvent>; // 노드 완료마다 stage emit, 그래프 종료 시 end
   finish: Promise<{
     text: string;
     citations: Citation[];
-    inputTokens: number | undefined;       // usage_metadata 콜백 미연결
+    chunks: SearchResult[];                 // rerank 통과 top-k — 호출자 persist용
+    inputTokens: number | undefined;        // usage_metadata 콜백 미연결
     outputTokens: number | undefined;
-    finishReason: string;                  // 항상 "stop"
+    finishReason: string;                   // 항상 "stop"
     model: string;
   }>;
 }>
@@ -78,13 +80,13 @@ core.chat.recordChatTurn(args: {
 parseEnv(input): { DATABASE_URL, VOYAGE_API_KEY, VOYAGE_MODEL, OPENAI_API_KEY }
 ```
 
-핸들러는 `ask` 스트림을 SSE로 직렬화 후 `recordChatTurn`으로 conversations + messages 2건을 단일 transaction 기록. public export(`packages/core/src/index.ts`): `createCore` · `Core` · `parseEnv` · `PROMPT_VERSION` · `Citation`만.
+핸들러는 `ask` 스트림을 SSE로 직렬화 후 `recordChatTurn`으로 conversations + messages 2건을 단일 transaction 기록. public export(`packages/core/src/index.ts`): `createCore` · `Core` · `parseEnv` · `PROMPT_VERSION` · `Citation` · `ProgressEvent` · `ProgressStage`.
 
 ### Citation 타입
 
 ```ts
 type Citation = {
-  chunkId; docId; sourceId; docTitle; docVersion; sourceUrl;
+  chunkId; docId; docTitle; docVersion; sourceUrl;
   page; sectionPath; content; quote; quoteStart; quoteEnd;
 };
 // Invariant: content.slice(quoteStart, quoteEnd) === quote

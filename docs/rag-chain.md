@@ -29,7 +29,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   Q["query (string)"] --> EM["embed(input_type=query)<br/>→ number[1024]"]
-  EM --> SE["chunkRepo.search({embedding, k, filter})<br/>SELECT chunks JOIN documents ORDER BY 거리 LIMIT k"]
+  EM --> SE["chunkRepo.search({embedding, k})<br/>SELECT chunks JOIN documents ORDER BY 거리 LIMIT k"]
   SE --> R["SearchResult[]"]
 ```
 
@@ -39,7 +39,6 @@ SQL 핵심 (`chunk.repository.ts::search`):
 SELECT chunks.*, documents.title, documents.version, documents.source_url,
        1 - (chunks.embedding <=> $query_emb) AS similarity
 FROM chunks INNER JOIN documents ON documents.id = chunks.doc_id
-WHERE ($tax_type::text IS NULL OR chunks.metadata->>'tax_type' = $tax_type)
 ORDER BY chunks.embedding <=> $query_emb
 LIMIT $k;
 ```
@@ -47,13 +46,12 @@ LIMIT $k;
 - `<=>` pgvector cosine distance, `1 - distance` = similarity.
 - `INNER JOIN documents`로 인용 모달용 `docTitle`/`docVersion`/`sourceUrl` 동시 반환.
 - 인덱스 `idx_chunks_embedding` HNSW(`vector_cosine_ops`, m=16/ef_construction=64 기본). 토이 규모엔 ivfflat 튜닝보다 HNSW 기본이 무난.
-- `tax_type` 필터는 legacy — 현 법령 소스 metadata엔 없어 no-op.
 - 두 단계 모두 telemetry HOF로 wrap ([observability.md](./observability.md)).
 
 `SearchResult` (도메인 표면 camelCase, SQL alias 직접 매핑):
 ```ts
 type SearchResult = {
-  chunkId; docId; sourceId;            // sourceId: legacy, 법령 소스에선 빈 값
+  chunkId; docId;
   docTitle; docVersion; sourceUrl; page; sectionPath;
   content;                             // chunk 본문 — citation 객체화 시 그대로 박제
   similarity;                          // 1 - cosine_distance
@@ -61,7 +59,7 @@ type SearchResult = {
 };
 ```
 
-`RetrievalService.retrieve(query, opts?)` — `opts.k` 기본 8, `opts.filter.taxType`(legacy, 효과 없음). similarity threshold 없음(top-k + rerank + RRF fuse가 뒤에서 절단). 호출자: 그래프 노드(`searchWithRerank`로 prefilter=50 후 slice), `jobs/ragas-eval`, `jobs/lbr-eval`.
+`RetrievalService.retrieve(query, opts?)` — `opts.k` 기본 8. similarity threshold 없음(top-k + rerank + RRF fuse가 뒤에서 절단). 호출자: 그래프 노드(`searchWithRerank`로 prefilter=50 후 slice), `jobs/ragas-eval`, `jobs/lbr-eval`.
 
 ## 3. LangGraph 노드
 
@@ -85,7 +83,7 @@ type SearchResult = {
 `llm.adapter.ts` — `MODEL_DEFAULTS`가 노드 role별 모델·튜닝을 보유. 노드는 `deps.models[role].model`로 조회:
 - `rewrite` → `gpt-5-mini`, effort `low`
 - `draft`(HyDE) → `gpt-5`, effort `low` — mini로 부족해 tier 인상. recall 개선은 lbr-eval로 검증
-- `answer` → `gpt-5-mini`, effort `low` + verbosity `low`
+- `answer` → `gpt-5`, effort `low`
 - Provider: `@langchain/openai`의 `ChatOpenAI` 직접 import (universal factory 비채택 — Turbopack이 변수 dynamic import를 정적 해결 못해 web bundle에서 500. provider 1개라 universal 무의미)
 - `createModelRegistry({ apiKey, overrides })` — overrides로 코드 수정 없이 role별 모델/effort 교체(eval·실험)
 
@@ -129,7 +127,7 @@ graph.invoke({ messages: [...history, new HumanMessage(query)] }, { recursionLim
 
 ## 7. Prompt
 
-`prompt.ts`. `PROMPT_VERSION = "v4.5"` — 평가 cohort 비교 키. 세 system prompt:
+`prompt.ts`. `PROMPT_VERSION = "v6.1"` — 평가 cohort 비교 키. 세 system prompt:
 - `REWRITE_QUERY_SYSTEM` — `rewrite_query`. follow-up → standalone query + 일상어→법령어 정규화. 동사 치환 금지·위임 trigger 보존
 - `DRAFT_WITH_CLAIMS_SYSTEM` — `generate_draft`. 자체지식 draft + atomic claim 배열. 출력은 검색 키 전용. 수치·임계는 일반 표현 우선(stale 안전장치)
 - `ANSWER_SYSTEM` — `generate_answer`. chunk-grounded synthesis with draft as guide. claim별 evidence verify → 뒷받침되면 채택, 안 되면 reject. verified 사실(기본·예외·위임 시행령·사후 수정·폐업 특례)을 별도 문장으로 답에 포함 (Verify-and-Edit / ALCE 패턴)
